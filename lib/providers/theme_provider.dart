@@ -3,13 +3,21 @@ import '../theme/app_theme.dart';
 
 /// Gestionnaire de thème pour basculer entre mode clair et sombre
 class ThemeProvider extends ChangeNotifier {
-  ThemeMode _themeMode = ThemeMode.light;
+  ThemeMode _themeMode = ThemeMode.system;
 
   /// Mode de thème actuel
   ThemeMode get themeMode => _themeMode;
 
-  /// Vérifie si le mode sombre est activé
-  bool get isDarkMode => _themeMode == ThemeMode.dark;
+  /// Vérifie si le mode sombre est activé (en tenant compte du thème système)
+  bool get isDarkMode {
+    if (_themeMode == ThemeMode.system) {
+      // Utiliser MediaQuery pour détecter le thème système
+      // Note: Cette méthode nécessite un BuildContext, donc on utilisera
+      // plutôt Brightness.of(context) dans les widgets
+      return false; // Valeur par défaut, sera déterminée par le système
+    }
+    return _themeMode == ThemeMode.dark;
+  }
 
   /// Obtenir le thème actuel
   ThemeData get currentTheme {
@@ -18,11 +26,19 @@ class ThemeProvider extends ChangeNotifier {
         : AppTheme.lightTheme;
   }
 
-  /// Basculer entre mode clair et sombre
+  /// Basculer entre les modes : system -> light -> dark -> system
   void toggleTheme() {
-    _themeMode = _themeMode == ThemeMode.light
-        ? ThemeMode.dark
-        : ThemeMode.light;
+    switch (_themeMode) {
+      case ThemeMode.system:
+        _themeMode = ThemeMode.light;
+        break;
+      case ThemeMode.light:
+        _themeMode = ThemeMode.dark;
+        break;
+      case ThemeMode.dark:
+        _themeMode = ThemeMode.system;
+        break;
+    }
     notifyListeners();
   }
 

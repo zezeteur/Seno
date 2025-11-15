@@ -78,14 +78,35 @@ class _HomePageState extends State<HomePage> {
         centerTitle: true,
         elevation: 0,
         actions: [
-          IconButton(
-            icon: Icon(
-              themeProvider.isDarkMode ? Icons.light_mode : Icons.dark_mode,
-            ),
-            onPressed: () {
-              themeProvider.toggleTheme();
+          Builder(
+            builder: (context) {
+              // Détecter le thème actuel (en tenant compte du mode système)
+              final brightness = Theme.of(context).brightness;
+              final isDark = brightness == Brightness.dark;
+
+              // Déterminer l'icône et le tooltip selon le mode
+              IconData icon;
+              String tooltip;
+
+              if (themeProvider.themeMode == ThemeMode.system) {
+                icon = isDark ? Icons.light_mode : Icons.dark_mode;
+                tooltip = 'Basculer le thème (Système)';
+              } else if (themeProvider.themeMode == ThemeMode.dark) {
+                icon = Icons.light_mode;
+                tooltip = 'Mode clair';
+              } else {
+                icon = Icons.dark_mode;
+                tooltip = 'Mode sombre';
+              }
+
+              return IconButton(
+                icon: Icon(icon),
+                onPressed: () {
+                  themeProvider.toggleTheme();
+                },
+                tooltip: tooltip,
+              );
             },
-            tooltip: themeProvider.isDarkMode ? 'Mode clair' : 'Mode sombre',
           ),
         ],
       ),

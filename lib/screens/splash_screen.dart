@@ -3,7 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import '../config/app_config.dart';
 import '../theme/app_colors.dart';
-import '../main.dart';
+import 'onboarding_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -193,11 +193,11 @@ class _SplashScreenState extends State<SplashScreen> {
     // Attendre un délai minimum pour l'affichage de la splash screen
     await Future.delayed(const Duration(seconds: 2));
 
-    // Naviguer vers la page d'accueil
+    // Naviguer vers la page d'onboarding
     if (mounted) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (_) => const HomePage(),
+          builder: (_) => const OnboardingScreen(),
         ),
       );
     }

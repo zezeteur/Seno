@@ -262,10 +262,10 @@ class AppTheme {
       
       // ColorScheme personnalisé pour le mode sombre
       colorScheme: ColorScheme.dark(
-        primary: AppColors.darkPrimary,
-        onPrimary: AppColors.darkTextOnPrimary,
-        primaryContainer: AppColors.darkPrimaryContainer,
-        onPrimaryContainer: AppColors.darkTextOnSurface,
+        primary: AppColors.primary, // Garder la même couleur principale qu'en mode clair
+        onPrimary: AppColors.textOnPrimary,
+        primaryContainer: AppColors.primaryLight,
+        onPrimaryContainer: AppColors.textOnPrimary,
         
         secondary: AppColors.darkSecondary,
         onSecondary: AppColors.darkTextOnSecondary,
@@ -290,8 +290,8 @@ class AppTheme {
       appBarTheme: AppBarTheme(
         centerTitle: true,
         elevation: 0,
-        backgroundColor: AppColors.darkPrimaryContainer,
-        foregroundColor: AppColors.darkTextOnSurface,
+        backgroundColor: AppColors.primary, // Garder la même couleur principale
+        foregroundColor: AppColors.textOnPrimary,
         titleTextStyle: const TextStyle(
           color: AppColors.darkTextOnSurface,
           fontSize: 20,
