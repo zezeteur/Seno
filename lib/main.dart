@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'providers/theme_provider.dart';
 import 'theme/app_theme.dart';
 import 'screens/splash_screen.dart';
+import 'screens/login_screen.dart';
+import 'screens/home_screen.dart';
+import 'config/app_config.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Verrouiller l'orientation en mode portrait uniquement
@@ -13,6 +18,31 @@ void main() {
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
+
+  // Initialiser Supabase
+  if (AppConfig.isSupabaseConfigured()) {
+    try {
+      await Supabase.initialize(
+        url: AppConfig.supabaseUrl,
+        anonKey: AppConfig.supabaseAnonKey,
+      );
+    } catch (e) {
+      debugPrint('Erreur lors de l\'initialisation de Supabase: $e');
+    }
+  }
+
+  // Initialiser Google Sign In avec les client IDs
+  final GoogleSignIn googleSignIn = GoogleSignIn.instance;
+  if (AppConfig.googleWebClientId.isNotEmpty &&
+      AppConfig.googleIosClientId.isNotEmpty) {
+    await googleSignIn.initialize(
+      clientId: AppConfig.googleIosClientId,
+      serverClientId: AppConfig.googleWebClientId,
+    );
+  } else {
+    // Initialisation sans client IDs (pour le développement)
+    await googleSignIn.initialize();
+  }
 
   runApp(const MyApp());
 }
@@ -33,11 +63,25 @@ class MyApp extends StatelessWidget {
             darkTheme: AppTheme.darkTheme,
             themeMode: themeProvider.themeMode,
             home: const SplashScreen(),
+            // Gérer les deep links OAuth
+            onGenerateRoute: (settings) {
+              if (settings.name == '/login-callback') {
+                // Gérer le callback OAuth
+                return MaterialPageRoute(
+                  builder: (_) => const LoginScreen(),
+                );
+              }
+              return null;
+            },
             builder: (context, child) {
+              // Préserver viewPadding pour permettre SafeArea de fonctionner
+              // mais mettre padding à zéro pour enlever le SafeArea par défaut
+              final originalMediaQuery = MediaQuery.of(context);
               return MediaQuery(
-                data: MediaQuery.of(context).copyWith(
+                data: originalMediaQuery.copyWith(
                   padding: EdgeInsets.zero,
-                  viewPadding: EdgeInsets.zero,
+                  // Garder viewPadding pour que SafeArea fonctionne quand nécessaire
+                  viewPadding: originalMediaQuery.viewPadding,
                 ),
                 child: child!,
               );
@@ -49,114 +93,12 @@ class MyApp extends StatelessWidget {
   }
 }
 
-class HomePage extends StatefulWidget {
+// Alias pour la compatibilité avec login_screen.dart
+class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
   @override
-  State<HomePage> createState() => _HomePageState();
-}
-
-class _HomePageState extends State<HomePage> {
-  int _counter = 0;
-
-  void _incrementCounter() {
-    setState(() {
-      _counter++;
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final themeProvider = Provider.of<ThemeProvider>(context);
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'Bienvenue sur Seno',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        centerTitle: true,
-        elevation: 0,
-        actions: [
-          Builder(
-            builder: (context) {
-              // Détecter le thème actuel (en tenant compte du mode système)
-              final brightness = Theme.of(context).brightness;
-              final isDark = brightness == Brightness.dark;
-
-              // Déterminer l'icône et le tooltip selon le mode
-              IconData icon;
-              String tooltip;
-
-              if (themeProvider.themeMode == ThemeMode.system) {
-                icon = isDark ? Icons.light_mode : Icons.dark_mode;
-                tooltip = 'Basculer le thème (Système)';
-              } else if (themeProvider.themeMode == ThemeMode.dark) {
-                icon = Icons.light_mode;
-                tooltip = 'Mode clair';
-              } else {
-                icon = Icons.dark_mode;
-                tooltip = 'Mode sombre';
-              }
-
-              return IconButton(
-                icon: Icon(icon),
-                onPressed: () {
-                  themeProvider.toggleTheme();
-                },
-                tooltip: tooltip,
-              );
-            },
-          ),
-        ],
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.flutter_dash,
-                size: 80,
-                color: Theme.of(context).colorScheme.onPrimaryContainer,
-              ),
-            ),
-            const SizedBox(height: 32),
-            Text(
-              'Vous avez appuyé sur le bouton',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 16),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(24.0),
-                child: Text(
-                  '$_counter',
-                  style: Theme.of(context).textTheme.displayLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _counter == 1 ? 'fois' : 'fois',
-              style: Theme.of(context).textTheme.bodyLarge,
-            ),
-          ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _incrementCounter,
-        icon: const Icon(Icons.add),
-        label: const Text('Incrémenter'),
-      ),
-    );
+    return const HomeScreen();
   }
 }

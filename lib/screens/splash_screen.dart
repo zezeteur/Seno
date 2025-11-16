@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
-import '../config/app_config.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_colors.dart';
 import 'onboarding_screen.dart';
+import 'login_screen.dart';
+import 'home_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -179,27 +182,54 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _initializeApp() async {
-    // Initialiser Supabase si configuré
-    if (AppConfig.isSupabaseConfigured()) {
-      try {
-        // Supabase sera initialisé via le client directement
-        // Le client peut être créé avec: SupabaseClient(url, anonKey)
-        debugPrint('Supabase configuré: ${AppConfig.supabaseUrl}');
-      } catch (e) {
-        debugPrint('Erreur lors de l\'initialisation de Supabase: $e');
-      }
-    }
-
     // Attendre un délai minimum pour l'affichage de la splash screen
     await Future.delayed(const Duration(seconds: 2));
 
-    // Naviguer vers la page d'onboarding
-    if (mounted) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => const OnboardingScreen(),
-        ),
-      );
+    if (!mounted) return;
+
+    try {
+      // Vérifier si l'utilisateur est déjà connecté
+      final supabase = Supabase.instance.client;
+      final session = supabase.auth.currentSession;
+      
+      if (session != null) {
+        // L'utilisateur est déjà connecté, aller directement à la page d'accueil
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => const HomeScreen(),
+          ),
+        );
+        return;
+      }
+
+      // Vérifier si l'onboarding a déjà été vu
+      final prefs = await SharedPreferences.getInstance();
+      final hasSeenOnboarding = prefs.getBool('has_seen_onboarding') ?? false;
+
+      if (hasSeenOnboarding) {
+        // L'onboarding a déjà été vu, aller à la page de connexion
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => const LoginScreen(),
+          ),
+        );
+      } else {
+        // Première fois, afficher l'onboarding
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => const OnboardingScreen(),
+          ),
+        );
+      }
+    } catch (e) {
+      // En cas d'erreur, aller à la page de connexion
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => const LoginScreen(),
+          ),
+        );
+      }
     }
   }
 
@@ -211,21 +241,6 @@ class _SplashScreenState extends State<SplashScreen> {
       backgroundColor: AppColors.primary,
       body: Stack(
         children: [
-          // Pattern en haut à droite
-          Positioned(
-            top: 0,
-            right: 0,
-            child: Image.asset(
-              'assets/images/pattern.png',
-              width: 120,
-              height: 120,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) {
-                // Si l'image n'est pas trouvée, ne rien afficher
-                return const SizedBox.shrink();
-              },
-            ),
-          ),
           // Icônes financières aléatoires en arrière-plan
           ..._iconPositions.map((iconPos) {
             return Positioned(

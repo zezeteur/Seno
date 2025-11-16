@@ -52,3 +52,8 @@ app.*.map.json
 *.env
 config/secrets.dart
 
+# Android keystore files
+*.jks
+*.keystore
+android/key.properties
+

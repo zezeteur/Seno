@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_colors.dart';
-import '../main.dart';
+import 'login_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -31,102 +32,96 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
   }
 
-  void _previousPage() {
-    if (_currentPage > 0) {
-      _pageController.previousPage(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
+  Future<void> _goToHome() async {
+    // Enregistrer que l'onboarding a été vu
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('has_seen_onboarding', true);
+
+    if (mounted) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => const LoginScreen(),
+        ),
       );
     }
   }
 
-  void _goToHome() {
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => const HomePage(),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    // Obtenir les paddings système directement depuis MediaQuery
+    final mediaQuery = MediaQuery.of(context);
+    final topPadding = mediaQuery.viewPadding.top;
+    final bottomPadding = mediaQuery.viewPadding.bottom;
+
     return Scaffold(
-      backgroundColor: AppColors.primary,
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Indicateurs de page
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 24.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(
-                  _totalPages,
-                  (index) => _buildPageIndicator(index == _currentPage),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: Column(
+        children: [
+          // Padding en haut pour la barre de statut
+          SizedBox(height: topPadding),
+          // PageView
+          Expanded(
+            child: PageView(
+              controller: _pageController,
+              onPageChanged: (index) {
+                setState(() {
+                  _currentPage = index;
+                });
+              },
+              children: [
+                _buildOnboardingPage(
+                  imagePath: 'assets/images/onboarding.png',
+                  title: 'Payez facilement et sans frais !',
+                  description:
+                      'Peu importe votre réseau, payez sans changer de compte',
                 ),
-              ),
+                _buildOnboardingPage(
+                  imagePath: 'assets/images/onboarding2.png',
+                  title: 'Envoyez de l\'argent, peu importe le réseau !',
+                  description:
+                      'Avec Seno, vous pouvez envoyer de l\'argent facilement d\'un réseau à l\'autre',
+                ),
+              ],
             ),
-            // PageView
-            Expanded(
-              child: PageView(
-                controller: _pageController,
-                onPageChanged: (index) {
-                  setState(() {
-                    _currentPage = index;
-                  });
-                },
-                children: [
-                  _buildOnboardingPage(
-                    icon: Icons.account_balance_wallet,
-                    title: 'Bienvenue sur Seno',
-                    description:
-                        'Votre application de paiement rapide et sécurisée. Gérez vos transactions en toute simplicité.',
-                  ),
-                  _buildOnboardingPage(
-                    icon: Icons.security,
-                    title: 'Sécurité garantie',
-                    description:
-                        'Vos données sont protégées avec les meilleures technologies de cryptage. Paiement en toute confiance.',
-                  ),
-                ],
-              ),
+          ),
+          // Boutons de navigation avec indicateurs en bas à gauche
+          Padding(
+            padding: EdgeInsets.only(
+              left: 24.0,
+              right: 24.0,
+              top: 24.0,
+              bottom: 24.0 + bottomPadding,
             ),
-            // Boutons de navigation
-            Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  // Bouton Précédent
-                  if (_currentPage > 0)
-                    TextButton(
-                      onPressed: _previousPage,
-                      child: const Text('Précédent'),
-                    )
-                  else
-                    const SizedBox.shrink(),
-                  // Bouton Suivant/Commencer
-                  ElevatedButton(
-                    onPressed: _nextPage,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.secondary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 32,
-                        vertical: 16,
-                      ),
-                    ),
-                    child: Text(
-                      _currentPage == _totalPages - 1
-                          ? 'Commencer'
-                          : 'Suivant',
-                    ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // Indicateurs de page en bas à gauche
+                Row(
+                  children: List.generate(
+                    _totalPages,
+                    (index) => _buildPageIndicator(index == _currentPage),
                   ),
-                ],
-              ),
+                ),
+                // Bouton avec icône uniquement
+                ElevatedButton(
+                  onPressed: _nextPage,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.secondary,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.all(16),
+                    shape: const CircleBorder(),
+                  ),
+                  child: Icon(
+                    _currentPage == _totalPages - 1
+                        ? Icons.check
+                        : Icons.arrow_forward,
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -138,58 +133,68 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       height: 8,
       width: isActive ? 24 : 8,
       decoration: BoxDecoration(
-        color: isActive ? AppColors.secondary : AppColors.secondary.withOpacity(0.3),
+        color: isActive
+            ? AppColors.secondary
+            : AppColors.secondary.withOpacity(0.3),
         borderRadius: BorderRadius.circular(4),
       ),
     );
   }
 
   Widget _buildOnboardingPage({
-    required IconData icon,
+    required String imagePath,
     required String title,
     required String description,
   }) {
     return Padding(
-      padding: const EdgeInsets.all(32.0),
+      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // Icône
-          Container(
-            padding: const EdgeInsets.all(32),
-            decoration: BoxDecoration(
-              color: AppColors.secondary.withOpacity(0.1),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              icon,
-              size: 80,
-              color: AppColors.secondary,
+          // Image
+          Expanded(
+            flex: 9,
+            child: Image.asset(
+              imagePath,
+              fit: BoxFit.cover,
+              width: double.infinity,
+              errorBuilder: (context, error, stackTrace) {
+                return const SizedBox.shrink();
+              },
             ),
           ),
-          const SizedBox(height: 48),
+          const SizedBox(height: 8),
           // Titre
-          Text(
-            title,
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textOnPrimary,
-                ),
-            textAlign: TextAlign.center,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32.0),
+            child: Text(
+              title,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+              textAlign: TextAlign.center,
+            ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 8),
           // Description
-          Text(
-            description,
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: AppColors.textSecondary,
-                  height: 1.5,
+          Expanded(
+            flex: 1,
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32.0),
+                child: Text(
+                  description,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: AppColors.textSecondary,
+                        height: 1.5,
+                      ),
+                  textAlign: TextAlign.center,
                 ),
-            textAlign: TextAlign.center,
+              ),
+            ),
           ),
         ],
       ),
     );
   }
 }
-

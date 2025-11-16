@@ -40,6 +40,31 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- Permissions caméra pour scanner les QR codes -->
+	<key>NSCameraUsageDescription</key>
+	<string>Cette application a besoin d'accéder à la caméra pour scanner les QR codes.</string>
+	<!-- Deep links pour OAuth callback et Google Sign-In -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<!-- Deep link pour OAuth callback -->
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.saudisgroup.seno</string>
+			</array>
+		</dict>
+		<!-- Google Sign-In URL Scheme -->
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.19573161667-ujpk9oji3dc40gra5buspf8v5q33ihuf</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
 
