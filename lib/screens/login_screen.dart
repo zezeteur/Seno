@@ -6,6 +6,7 @@ import '../theme/app_colors.dart';
 import '../main.dart';
 import '../utils/toast_service.dart';
 import '../services/supabase_service.dart';
+import 'wallet_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -88,11 +89,39 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (response.user != null && mounted) {
         ToastService.showSuccess(context, 'Bienvenue ! Connexion réussie.');
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (_) => const HomePage(),
-          ),
-        );
+
+        // Vérifier si l'utilisateur a des comptes
+        try {
+          final comptes = await SupabaseService.getComptes();
+          if (comptes.isEmpty) {
+            // Aucun compte, rediriger vers la page portefeuille
+            if (mounted) {
+              Navigator.of(context).pushReplacement(
+                MaterialPageRoute(
+                  builder: (_) => const WalletScreen(),
+                ),
+              );
+            }
+          } else {
+            // L'utilisateur a des comptes, aller à la page d'accueil
+            if (mounted) {
+              Navigator.of(context).pushReplacement(
+                MaterialPageRoute(
+                  builder: (_) => const HomePage(),
+                ),
+              );
+            }
+          }
+        } catch (e) {
+          // En cas d'erreur lors de la récupération des comptes, aller à la page d'accueil
+          if (mounted) {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(
+                builder: (_) => const HomePage(),
+              ),
+            );
+          }
+        }
       } else {
         ToastService.showError(
             context, 'Échec de la connexion. Veuillez réessayer.');

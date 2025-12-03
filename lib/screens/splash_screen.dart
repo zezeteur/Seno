@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_colors.dart';
+import '../services/supabase_service.dart';
 import 'onboarding_screen.dart';
 import 'login_screen.dart';
 import 'home_screen.dart';
+import 'wallet_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -50,16 +52,17 @@ class _SplashScreenState extends State<SplashScreen> {
     _initializeApp();
   }
 
-  bool _hasCollision(IconPosition newPos, List<IconPosition> existingPositions) {
+  bool _hasCollision(
+      IconPosition newPos, List<IconPosition> existingPositions) {
     // Supposons une taille d'écran minimale pour le calcul (400px)
     // Cela permet de convertir les pixels en pourcentage approximatif
     const double minScreenWidth = 400.0;
-    
+
     // Zone d'exclusion au centre pour le logo (environ 30% de l'écran)
     const double centerX = 0.5;
     const double centerY = 0.5;
     const double logoRadius = 0.15; // 15% de l'écran
-    
+
     // Vérifier si la nouvelle position est trop proche du centre (logo)
     final double distanceToCenter = sqrt(
       pow(newPos.left - centerX, 2) + pow(newPos.top - centerY, 2),
@@ -68,26 +71,27 @@ class _SplashScreenState extends State<SplashScreen> {
     if (distanceToCenter < logoRadius + newSizePercent / 2) {
       return true; // Trop proche du logo
     }
-    
+
     // Vérifier les collisions avec les autres icônes
     for (var existingPos in existingPositions) {
       // Calculer la distance entre les centres des icônes (en pourcentage)
       final double deltaX = newPos.left - existingPos.left;
       final double deltaY = newPos.top - existingPos.top;
       final double distancePercent = sqrt(deltaX * deltaX + deltaY * deltaY);
-      
+
       // Convertir les tailles en pourcentage de l'écran
       final double existingSizePercent = existingPos.size / minScreenWidth;
-      
+
       // Vérifier si les icônes sont identiques
-      final bool isSameIcon = newPos.icon.codePoint == existingPos.icon.codePoint;
-      
+      final bool isSameIcon =
+          newPos.icon.codePoint == existingPos.icon.codePoint;
+
       // Distance minimale requise
       // Si les icônes sont identiques, augmenter la distance minimale (8% au lieu de 2%)
       final double baseMargin = isSameIcon ? 0.08 : 0.02;
-      final double minDistancePercent = 
+      final double minDistancePercent =
           (newSizePercent + existingSizePercent) / 2 + baseMargin;
-      
+
       if (distancePercent < minDistancePercent) {
         return true; // Collision détectée
       }
@@ -98,12 +102,12 @@ class _SplashScreenState extends State<SplashScreen> {
   void _generateIconPositions() {
     _iconPositions = [];
     const int numberOfIcons = 15;
-    
+
     // Créer une grille pour distribuer uniformément les icônes
     // On divise l'écran en zones (par exemple 4x4 = 16 zones)
     const int gridCols = 4;
     const int gridRows = 4;
-    
+
     // Créer une liste de toutes les zones disponibles (col, row)
     final List<({int col, int row})> availableZones = [];
     for (int row = 0; row < gridRows; row++) {
@@ -111,42 +115,44 @@ class _SplashScreenState extends State<SplashScreen> {
         availableZones.add((col: col, row: row));
       }
     }
-    
+
     // Mélanger les zones pour une distribution aléatoire
     availableZones.shuffle(_random);
-    
+
     // Zone d'exclusion au centre pour le logo
     const double centerX = 0.5;
     const double centerY = 0.5;
     const double logoRadius = 0.15;
-    
+
     int iconCount = 0;
     for (final zone in availableZones) {
       if (iconCount >= numberOfIcons) break;
-      
+
       // Calculer la position de la zone
       final double zoneWidth = 1.0 / gridCols;
       final double zoneHeight = 1.0 / gridRows;
-      
+
       final double zoneLeft = zone.col * zoneWidth;
       final double zoneTop = zone.row * zoneHeight;
-      
+
       // Position aléatoire dans la zone (avec marge pour éviter les bords)
       final double margin = 0.1; // 10% de marge dans chaque zone
-      final double left = zoneLeft + margin * zoneWidth + 
+      final double left = zoneLeft +
+          margin * zoneWidth +
           _random.nextDouble() * zoneWidth * (1 - 2 * margin);
-      final double top = zoneTop + margin * zoneHeight + 
+      final double top = zoneTop +
+          margin * zoneHeight +
           _random.nextDouble() * zoneHeight * (1 - 2 * margin);
-      
+
       // Vérifier si la position est trop proche du centre (logo)
       final double distanceToCenter = sqrt(
         pow(left - centerX, 2) + pow(top - centerY, 2),
       );
-      
+
       if (distanceToCenter < logoRadius) {
         continue; // Ignorer cette zone si trop proche du logo
       }
-      
+
       // Créer l'icône dans cette zone
       final iconPosition = IconPosition(
         icon: _financeIcons[_random.nextInt(_financeIcons.length)],
@@ -156,14 +162,14 @@ class _SplashScreenState extends State<SplashScreen> {
         opacity: 0.1 + _random.nextDouble() * 0.2, // Opacité entre 0.1 et 0.3
         rotation: _random.nextDouble() * 360, // Rotation aléatoire
       );
-      
+
       // Vérifier les collisions avec les icônes déjà placées
       if (!_hasCollision(iconPosition, _iconPositions)) {
         _iconPositions.add(iconPosition);
         iconCount++;
       }
     }
-    
+
     // Si on n'a pas assez d'icônes, en ajouter de manière aléatoire
     while (_iconPositions.length < numberOfIcons) {
       final candidate = IconPosition(
@@ -174,7 +180,7 @@ class _SplashScreenState extends State<SplashScreen> {
         opacity: 0.1 + _random.nextDouble() * 0.2,
         rotation: _random.nextDouble() * 360,
       );
-      
+
       if (!_hasCollision(candidate, _iconPositions)) {
         _iconPositions.add(candidate);
       }
@@ -191,14 +197,34 @@ class _SplashScreenState extends State<SplashScreen> {
       // Vérifier si l'utilisateur est déjà connecté
       final supabase = Supabase.instance.client;
       final session = supabase.auth.currentSession;
-      
+
       if (session != null) {
-        // L'utilisateur est déjà connecté, aller directement à la page d'accueil
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (_) => const HomeScreen(),
-          ),
-        );
+        // L'utilisateur est déjà connecté, vérifier s'il a des comptes
+        try {
+          final comptes = await SupabaseService.getComptes();
+          if (comptes.isEmpty) {
+            // Aucun compte, rediriger vers la page portefeuille
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(
+                builder: (_) => const WalletScreen(),
+              ),
+            );
+          } else {
+            // L'utilisateur a des comptes, aller à la page d'accueil
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(
+                builder: (_) => const HomeScreen(),
+              ),
+            );
+          }
+        } catch (e) {
+          // En cas d'erreur lors de la récupération des comptes, aller à la page d'accueil
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (_) => const HomeScreen(),
+            ),
+          );
+        }
         return;
       }
 
@@ -306,4 +332,3 @@ class IconPosition {
     required this.rotation,
   });
 }
-

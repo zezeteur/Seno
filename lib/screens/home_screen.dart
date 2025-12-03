@@ -9,7 +9,9 @@ import 'statistics_screen.dart';
 import 'account_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final int initialIndex;
+
+  const HomeScreen({super.key, this.initialIndex = 0});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -17,7 +19,13 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final supabase = Supabase.instance.client;
-  int _currentIndex = 0;
+  late int _currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex;
+  }
 
   String _getUserName() {
     final user = supabase.auth.currentUser;
@@ -64,7 +72,7 @@ class _HomeScreenState extends State<HomeScreen> {
         index: _currentIndex,
         children: [
           _buildHomeContent(),
-          const WalletScreen(),
+          WalletScreen(key: WalletScreen.globalKey),
           const StatisticsScreen(),
           const AccountScreen(),
         ],
