@@ -8,6 +8,7 @@ import '../theme/app_colors.dart';
 import '../utils/toast_service.dart';
 import '../utils/auth_errors.dart';
 import '../services/supabase_service.dart';
+import 'access_code_screen.dart';
 import 'otp_screen.dart';
 import 'help_support_screen.dart';
 
@@ -82,18 +83,33 @@ class _LoginScreenState extends State<LoginScreen> {
 
     setState(() => _isLoading = true);
     try {
-      final debugCode = await SupabaseService.sendOtp(_fullPhone);
+      final result = await SupabaseService.sendOtp(_fullPhone);
       if (!mounted) return;
+      final displayPhone = '$_countryCode ${_phoneController.text}';
+
+      // Compte existant : code d'accès d'abord, le SMS partira ensuite
+      if (result.requiresAccessCode) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => AccessCodeScreen.verify(
+              phone: _fullPhone,
+              displayPhone: displayPhone,
+            ),
+          ),
+        );
+        return;
+      }
+
       ToastService.showSuccess(context, context.tr('code_sent'));
       // Mode développement : aucun fournisseur SMS configuré côté serveur
-      if (debugCode != null && kDebugMode) {
-        ToastService.showInfo(context, 'Code (dev) : $debugCode');
+      if (result.debugCode != null && kDebugMode) {
+        ToastService.showInfo(context, 'Code (dev) : ${result.debugCode}');
       }
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => OtpScreen(
             phone: _fullPhone,
-            displayPhone: '$_countryCode ${_phoneController.text}',
+            displayPhone: displayPhone,
           ),
         ),
       );

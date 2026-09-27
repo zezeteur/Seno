@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../l10n/app_strings.dart';
+import '../widgets/app_bottom_sheet.dart';
 import 'package:provider/provider.dart';
 import 'package:hugeicons/hugeicons.dart';
 import '../theme/app_colors.dart';
@@ -74,28 +75,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showLanguageDialog(LocaleProvider localeProvider) {
     final current = Localizations.localeOf(context).languageCode;
-    showDialog(
+    showChoiceSheet<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(context.tr('choose_language')),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final code in ['fr', 'en'])
-              RadioListTile<String>(
-                title: Text(context.tr('lang_$code')),
-                value: code,
-                groupValue: current,
-                onChanged: (value) {
-                  if (value != null) {
-                    localeProvider.setLocale(Locale(value));
-                    Navigator.of(dialogContext).pop();
-                  }
-                },
-              ),
-          ],
-        ),
-      ),
+      title: context.tr('choose_language'),
+      options: [
+        for (final code in ['fr', 'en']) (code, context.tr('lang_$code'))
+      ],
+      selected: current,
+      onSelected: (value) => localeProvider.setLocale(Locale(value)),
     );
   }
 
@@ -164,49 +151,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             color: AppColors.textSecondary,
                           ),
                           onTap: () {
-                            showDialog(
+                            showChoiceSheet<ThemeMode>(
                               context: context,
-                              builder: (context) => AlertDialog(
-                                title: Text(context.tr('choose_theme')),
-                                content: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    RadioListTile<ThemeMode>(
-                                      title: Text(context.tr('theme_system')),
-                                      value: ThemeMode.system,
-                                      groupValue: themeProvider.themeMode,
-                                      onChanged: (value) {
-                                        if (value != null) {
-                                          themeProvider.setThemeMode(value);
-                                          Navigator.of(context).pop();
-                                        }
-                                      },
-                                    ),
-                                    RadioListTile<ThemeMode>(
-                                      title: Text(context.tr('theme_light')),
-                                      value: ThemeMode.light,
-                                      groupValue: themeProvider.themeMode,
-                                      onChanged: (value) {
-                                        if (value != null) {
-                                          themeProvider.setThemeMode(value);
-                                          Navigator.of(context).pop();
-                                        }
-                                      },
-                                    ),
-                                    RadioListTile<ThemeMode>(
-                                      title: Text(context.tr('theme_dark')),
-                                      value: ThemeMode.dark,
-                                      groupValue: themeProvider.themeMode,
-                                      onChanged: (value) {
-                                        if (value != null) {
-                                          themeProvider.setThemeMode(value);
-                                          Navigator.of(context).pop();
-                                        }
-                                      },
-                                    ),
-                                  ],
-                                ),
-                              ),
+                              title: context.tr('choose_theme'),
+                              options: [
+                                (ThemeMode.system, context.tr('theme_system')),
+                                (ThemeMode.light, context.tr('theme_light')),
+                                (ThemeMode.dark, context.tr('theme_dark')),
+                              ],
+                              selected: themeProvider.themeMode,
+                              onSelected: themeProvider.setThemeMode,
                             );
                           },
                         ),

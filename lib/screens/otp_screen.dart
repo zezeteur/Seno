@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:flutter/foundation.dart';
+import 'package:smart_auth/smart_auth.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../l10n/app_strings.dart';
 import '../services/supabase_service.dart';
@@ -20,10 +21,14 @@ class OtpScreen extends StatefulWidget {
   /// Numéro affiché à l'utilisateur (ex : +225 07 00 00 00 00)
   final String displayPhone;
 
+  /// Compte existant : preuve que le code d'accès a été validé
+  final String? ticket;
+
   const OtpScreen({
     super.key,
     required this.phone,
     required this.displayPhone,
+    this.ticket,
   });
 
   @override
@@ -32,7 +37,7 @@ class OtpScreen extends StatefulWidget {
 
 class _OtpScreenState extends State<OtpScreen> {
   static const int _codeLength = 4;
-  static const int _resendDelay = 60;
+  static const int _resendDelay = 30;
 
   final _codeController = TextEditingController();
   final _focusNode = FocusNode();
@@ -47,10 +52,12 @@ class _OtpScreenState extends State<OtpScreen> {
     super.initState();
     _focusNode.addListener(() => setState(() {}));
     _startTimer();
+    _listenForSms();
   }
 
   @override
   void dispose() {
+    if (_isAndroid) SmartAuth.instance.removeUserConsentApiListener();
     _timer?.cancel();
     _codeController.dispose();
     _focusNode.dispose();
@@ -66,6 +73,26 @@ class _OtpScreenState extends State<OtpScreen> {
     });
   }
 
+  bool get _isAndroid =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+  /// Android : détecte le SMS reçu (SMS User Consent API), remplit et valide.
+  /// iOS : géré par le clavier via AutofillHints.oneTimeCode.
+  Future<void> _listenForSms() async {
+    if (!_isAndroid) return;
+    await SmartAuth.instance.removeUserConsentApiListener();
+    final res = await SmartAuth.instance.getSmsWithUserConsentApi(
+      matcher: r'\b\d{4}\b',
+    );
+    final code = res.data?.code;
+    if (!mounted || code == null || code.length != _codeLength) return;
+    setState(() {
+      _codeController.text = code;
+      _hasError = false;
+    });
+    _verifyCode();
+  }
+
   SupabaseClient? _getClient() {
     final supabase =
         SupabaseService.isInitialized ? SupabaseService.client : null;
@@ -77,10 +104,7 @@ class _OtpScreenState extends State<OtpScreen> {
 
   Future<void> _verifyCode() async {
     final code = _codeController.text;
-    if (code.length != _codeLength) {
-      ToastService.showError(context, context.tr('code_4_digits'));
-      return;
-    }
+    if (_isLoading || code.length != _codeLength) return;
 
     if (_getClient() == null) return;
 
@@ -89,7 +113,8 @@ class _OtpScreenState extends State<OtpScreen> {
       _hasError = false;
     });
     try {
-      final isNewUser = await SupabaseService.verifyOtp(widget.phone, code);
+      final isNewUser = await SupabaseService.verifyOtp(widget.phone, code,
+          ticket: widget.ticket);
       if (!mounted) return;
       if (isNewUser) {
         // Inscription : compléter le profil
@@ -104,6 +129,11 @@ class _OtpScreenState extends State<OtpScreen> {
     } catch (e) {
       if (!mounted) return;
       ToastService.showError(context, authErrorMessage(context, e));
+      // Ticket du code d'accès expiré : retour à la connexion
+      if (e is AuthOtpException && e.code == 'ticket_expired') {
+        Navigator.of(context).pop();
+        return;
+      }
       setState(() {
         _isLoading = false;
         _hasError = true;
@@ -118,15 +148,23 @@ class _OtpScreenState extends State<OtpScreen> {
 
     setState(() => _isLoading = true);
     try {
-      final debugCode = await SupabaseService.sendOtp(widget.phone);
+      final result =
+          await SupabaseService.sendOtp(widget.phone, ticket: widget.ticket);
       if (!mounted) return;
+      // Ticket expiré : repasser par le code d'accès
+      if (result.requiresAccessCode) {
+        ToastService.showError(context, context.tr('session_expired_retry'));
+        Navigator.of(context).pop();
+        return;
+      }
       ToastService.showSuccess(context, context.tr('code_sent'));
-      if (debugCode != null && kDebugMode) {
-        ToastService.showInfo(context, 'Code (dev) : $debugCode');
+      if (result.debugCode != null && kDebugMode) {
+        ToastService.showInfo(context, 'Code (dev) : ${result.debugCode}');
       }
       _codeController.clear();
       _hasError = false;
       _startTimer();
+      _listenForSms();
     } catch (e) {
       if (mounted) {
         ToastService.showError(context, authErrorMessage(context, e));
@@ -259,35 +297,21 @@ class _OtpScreenState extends State<OtpScreen> {
                     const SizedBox(height: 48),
                     _buildCodeBoxes(),
                     const SizedBox(height: 40),
-                    ElevatedButton(
-                      onPressed: _isLoading ? null : _verifyCode,
-                      style: ElevatedButton.styleFrom(
-                        overlayColor: Colors.transparent,
-                        backgroundColor: Colors.black,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(50),
-                        ),
-                      ),
+                    // Validation automatique dès le 4e chiffre
+                    SizedBox(
+                      height: 24,
                       child: _isLoading
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor:
-                                    AlwaysStoppedAnimation<Color>(Colors.white),
+                          ? const Center(
+                              child: SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppColors.secondary,
+                                ),
                               ),
                             )
-                          : Text(
-                              context.tr('verify'),
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
+                          : null,
                     ),
                     const SizedBox(height: 20),
                     Center(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../l10n/app_strings.dart';
+import '../widgets/app_bottom_sheet.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:lottie/lottie.dart';
@@ -52,25 +53,15 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 
   Future<void> _handleSignOut() async {
-    final confirm = await showDialog<bool>(
+    final confirm = await showConfirmSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(context.tr('logout')),
-        content: Text(context.tr('logout_confirm')),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(context.tr('cancel')),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(context.tr('logout')),
-          ),
-        ],
-      ),
+      title: context.tr('logout'),
+      message: context.tr('logout_confirm'),
+      confirmLabel: context.tr('logout'),
+      destructive: true,
     );
 
-    if (confirm == true) {
+    if (confirm) {
       try {
         await supabase.auth.signOut();
         if (mounted) {

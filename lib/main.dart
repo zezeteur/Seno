@@ -10,6 +10,7 @@ import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'config/app_config.dart';
+import 'widgets/app_lock_gate.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -38,6 +39,8 @@ void main() async {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
+  static final navigatorKey = GlobalKey<NavigatorState>();
+
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
@@ -49,6 +52,7 @@ class MyApp extends StatelessWidget {
         builder: (context, themeProvider, localeProvider, _) {
           return MaterialApp(
             title: 'Seno',
+            navigatorKey: navigatorKey,
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightTheme,
             darkTheme: AppTheme.darkTheme,
@@ -82,7 +86,8 @@ class MyApp extends StatelessWidget {
                   // Garder viewPadding pour que SafeArea fonctionne quand nécessaire
                   viewPadding: originalMediaQuery.viewPadding,
                 ),
-                child: child!,
+                // Verrouillage par code d'accès au-dessus de toutes les pages
+                child: AppLockGate(navigatorKey: navigatorKey, child: child!),
               );
             },
           );

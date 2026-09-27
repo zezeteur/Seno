@@ -6,7 +6,7 @@ class AppColors {
 
   // Couleur principale : Jaune clair
   static const Color primary = Color(0xFFFDFE96);
-  
+
   // Couleur secondaire : Bleu
   static const Color secondary = Color(0xFF4D72F7);
 
@@ -21,7 +21,7 @@ class AppColors {
   // Couleurs de texte pour contraste
   static const Color textOnPrimary = Color(0xFF1A1A1A);
   static const Color textOnSecondary = Color(0xFFFFFFFF);
-  
+
   // Couleur pour les sous-textes (gris clair)
   static const Color textSecondary = Color(0xFF9E9E9E);
 
@@ -39,13 +39,12 @@ class AppColors {
   static const Color darkTextOnPrimary = Color(0xFF1A1A1A);
   static const Color darkTextOnSecondary = Color(0xFFFFFFFF);
   static const Color darkTextOnSurface = Color(0xFFE0E0E0);
-  
+
   // Couleurs primaires adaptées pour le mode sombre
   static const Color darkPrimary = Color(0xFFF9FA6E);
   static const Color darkPrimaryContainer = Color(0xFF6B6D1F);
-  
+
   // Couleurs secondaires adaptées pour le mode sombre
   static const Color darkSecondary = Color(0xFF7A95F9);
   static const Color darkSecondaryContainer = Color(0xFF1E3A8A);
 }
-

@@ -60,4 +60,3 @@ class ThemeProvider extends ChangeNotifier {
     setThemeMode(ThemeMode.light);
   }
 }
-

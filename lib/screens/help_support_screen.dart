@@ -1,16 +1,41 @@
 import 'package:flutter/material.dart';
 import '../l10n/app_strings.dart';
+import '../widgets/app_bottom_sheet.dart';
+import '../widgets/contact_support_sheet.dart';
 import 'package:hugeicons/hugeicons.dart';
 import '../theme/app_colors.dart';
 
 class HelpSupportScreen extends StatefulWidget {
-  const HelpSupportScreen({super.key});
+  /// N'affiche que l'option « Nous contacter » (ex. depuis l'écran de verrouillage)
+  final bool contactOnly;
+
+  /// Si fourni, ajoute l'option « Déconnexion » sous « Nous contacter »
+  final Future<void> Function()? onSignOut;
+
+  const HelpSupportScreen({
+    super.key,
+    this.contactOnly = false,
+    this.onSignOut,
+  });
 
   @override
   State<HelpSupportScreen> createState() => _HelpSupportScreenState();
 }
 
 class _HelpSupportScreenState extends State<HelpSupportScreen> {
+  Future<void> _confirmSignOut() async {
+    final confirm = await showConfirmSheet(
+      context: context,
+      title: context.tr('logout'),
+      message: context.tr('logout_confirm'),
+      confirmLabel: context.tr('logout'),
+      destructive: true,
+    );
+    if (!confirm || !mounted) return;
+    Navigator.of(context).pop();
+    await widget.onSignOut!();
+  }
+
   Widget _buildMenuItem({
     required dynamic icon,
     required String title,
@@ -118,56 +143,71 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                           icon: HugeIcons.strokeRoundedMessage01,
                           title: context.tr('contact_us'),
                           subtitle: context.tr('contact_us_sub'),
-                          onTap: () {
-                            // Fonctionnalité à venir
-                          },
+                          onTap: () => showContactSupportSheet(context),
                         ),
                       ],
                     ),
                   ),
+                  // Déconnexion (séparée du contact)
+                  if (widget.onSignOut != null)
+                    Container(
+                      margin: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surface,
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: _buildMenuItem(
+                        icon: HugeIcons.strokeRoundedLogout01,
+                        title: context.tr('logout'),
+                        subtitle: null,
+                        onTap: _confirmSignOut,
+                      ),
+                    ),
                   // Informations
-                  Container(
-                    margin:
-                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surface,
-                      borderRadius: BorderRadius.circular(24),
+                  if (!widget.contactOnly)
+                    Container(
+                      margin: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surface,
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: Column(
+                        children: [
+                          _buildMenuItem(
+                            icon: HugeIcons.strokeRoundedFile01,
+                            title: context.tr('terms'),
+                            subtitle: null,
+                            onTap: () {
+                              // Fonctionnalité à venir
+                            },
+                          ),
+                          Divider(
+                              height: 1,
+                              color: AppColors.textSecondary.withOpacity(0.2)),
+                          _buildMenuItem(
+                            icon: HugeIcons.strokeRoundedLock,
+                            title: context.tr('privacy'),
+                            subtitle: null,
+                            onTap: () {
+                              // Fonctionnalité à venir
+                            },
+                          ),
+                          Divider(
+                              height: 1,
+                              color: AppColors.textSecondary.withOpacity(0.2)),
+                          _buildMenuItem(
+                            icon: HugeIcons.strokeRoundedHelpCircle,
+                            title: context.tr('about'),
+                            subtitle: 'Version 1.0.0',
+                            onTap: () {
+                              // Fonctionnalité à venir
+                            },
+                          ),
+                        ],
+                      ),
                     ),
-                    child: Column(
-                      children: [
-                        _buildMenuItem(
-                          icon: HugeIcons.strokeRoundedFile01,
-                          title: context.tr('terms'),
-                          subtitle: null,
-                          onTap: () {
-                            // Fonctionnalité à venir
-                          },
-                        ),
-                        Divider(
-                            height: 1,
-                            color: AppColors.textSecondary.withOpacity(0.2)),
-                        _buildMenuItem(
-                          icon: HugeIcons.strokeRoundedLock,
-                          title: context.tr('privacy'),
-                          subtitle: null,
-                          onTap: () {
-                            // Fonctionnalité à venir
-                          },
-                        ),
-                        Divider(
-                            height: 1,
-                            color: AppColors.textSecondary.withOpacity(0.2)),
-                        _buildMenuItem(
-                          icon: HugeIcons.strokeRoundedHelpCircle,
-                          title: context.tr('about'),
-                          subtitle: 'Version 1.0.0',
-                          onTap: () {
-                            // Fonctionnalité à venir
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
                   // SafeArea en bas
                   SizedBox(height: bottomPadding),
                 ],

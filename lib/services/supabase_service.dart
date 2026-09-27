@@ -6,6 +6,7 @@ import '../config/app_config.dart';
 import '../models/reseau.dart';
 import '../models/compte.dart';
 import '../utils/toast_service.dart';
+import '../widgets/app_lock_gate.dart';
 
 /// Service global pour gérer l'instance Supabase
 class SupabaseService {
@@ -38,19 +39,131 @@ class SupabaseService {
   // AUTHENTIFICATION PAR TÉLÉPHONE (OTP 4 chiffres)
   // ============================================
 
-  /// Envoie un code à 4 chiffres par SMS.
-  /// Retourne le code uniquement en mode développement (aucun fournisseur SMS).
-  static Future<String?> sendOtp(String phone) async {
-    final data = await _invokeAuth('send-otp', {'phone': phone});
-    return data['debug_code'] as String?;
+  /// Envoie le code SMS à 4 chiffres.
+  /// Compte existant avec code d'accès : aucun SMS sans [ticket] —
+  /// renvoie alors `requiresAccessCode` pour passer d'abord par le code d'accès.
+  static Future<SendOtpResult> sendOtp(String phone, {String? ticket}) async {
+    final data = await _invokeAuth('send-otp', {
+      'phone': phone,
+      if (ticket != null) 'ticket': ticket,
+    });
+    return SendOtpResult(
+      requiresAccessCode: data['requires_access_code'] == true,
+      debugCode: data['debug_code'] as String?,
+    );
   }
 
-  /// Vérifie le code, ouvre la session et indique si c'est une inscription
-  static Future<bool> verifyOtp(String phone, String code) async {
+  /// Vérifie le code d'accès ; si correct, le serveur envoie l'OTP par SMS.
+  /// Renvoie le ticket à joindre à [verifyOtp].
+  static Future<String> verifyAccessCode(String phone, String code) async {
     final data =
-        await _invokeAuth('verify-otp', {'phone': phone, 'code': code});
+        await _invokeAuth('verify-access-code', {'phone': phone, 'code': code});
+    return data['ticket'] as String;
+  }
+
+  /// Vérifie le code SMS, ouvre la session et indique si c'est une inscription
+  static Future<bool> verifyOtp(String phone, String code,
+      {String? ticket}) async {
+    final data = await _invokeAuth('verify-otp', {
+      'phone': phone,
+      'code': code,
+      if (ticket != null) 'ticket': ticket,
+    });
     await client!.auth.setSession(data['refresh_token'] as String);
     return data['is_new_user'] as bool? ?? false;
+  }
+
+  /// Crée le code d'accès de l'utilisateur connecté
+  static Future<void> setAccessCode(String code) async {
+    await _invokeAuth('set-access-code', {'code': code});
+    AppLockGate.hasAccessCode.value = true;
+  }
+
+  /// Déverrouille l'app avec le code d'accès (utilisateur déjà connecté)
+  static Future<void> unlockApp(String code) async {
+    await _invokeAuth('unlock-app', {'code': code});
+  }
+
+  /// Blocage du code d'accès de l'utilisateur connecté
+  static Future<AccessLockStatus> getAccessLockStatus() async {
+    final rows = await client!.rpc('access_lock_status') as List;
+    if (rows.isEmpty) return const AccessLockStatus();
+    final row = Map<String, dynamic>.from(rows.first as Map);
+    final until = row['locked_until'] as String?;
+    return AccessLockStatus(
+      lockedUntil: until == null ? null : DateTime.parse(until).toLocal(),
+      permanentlyLocked: row['permanently_locked'] == true,
+    );
+  }
+
+  /// Code d'accès oublié, étape 1 : date de naissance → envoi d'un OTP.
+  /// Renvoie le jeton de réinitialisation et le numéro qui reçoit le SMS.
+  static Future<({String token, String phone})> startAccessCodeReset(
+      DateTime birthDate) async {
+    final d = birthDate;
+    final res = await _invokeAuth('reset-access-code', {
+      'action': 'start',
+      'birth_date': '${d.year.toString().padLeft(4, '0')}-'
+          '${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}',
+    });
+    return (token: res['token'] as String, phone: res['phone'] as String);
+  }
+
+  static Future<void> resendAccessCodeResetOtp(String token) async {
+    await _invokeAuth(
+        'reset-access-code', {'action': 'resend', 'token': token});
+  }
+
+  static Future<void> verifyAccessCodeResetOtp(String token, String otp) async {
+    await _invokeAuth('reset-access-code',
+        {'action': 'verify_otp', 'token': token, 'otp': otp});
+  }
+
+  static Future<void> setNewAccessCode(String token, String code) async {
+    await _invokeAuth('reset-access-code',
+        {'action': 'set_code', 'token': token, 'code': code});
+  }
+
+  /// Pseudo et photo de l'utilisateur connecté (écran de verrouillage)
+  static Future<({String? pseudo, String? avatarUrl})> getLockProfile() async {
+    final supabase = client;
+    final userId = supabase?.auth.currentUser?.id;
+    if (supabase == null || userId == null) {
+      return (pseudo: null, avatarUrl: null);
+    }
+    final row = await supabase
+        .from('profiles')
+        .select('pseudo, avatar_url')
+        .eq('id', userId)
+        .maybeSingle();
+    return (
+      pseudo: row?['pseudo'] as String?,
+      avatarUrl: row?['avatar_url'] as String?,
+    );
+  }
+
+  /// Coordonnées du support (table support_contacts)
+  static Future<SupportContacts> getSupportContacts() async {
+    final supabase = client;
+    if (supabase == null) throw const AuthOtpException('service_unavailable');
+    final row = await supabase
+        .from('support_contacts')
+        .select('whatsapp, phone, email')
+        .eq('id', 1)
+        .maybeSingle();
+    String? clean(Object? v) =>
+        v is String && v.trim().isNotEmpty ? v.trim() : null;
+    return SupportContacts(
+      whatsapp: clean(row?['whatsapp']),
+      phone: clean(row?['phone']),
+      email: clean(row?['email']),
+    );
+  }
+
+  /// L'utilisateur connecté a-t-il déjà un code d'accès ?
+  static Future<bool> hasAccessCode() async {
+    final result = await client!.rpc('has_access_code');
+    return result == true;
   }
 
   static Future<Map<String, dynamic>> _invokeAuth(
@@ -63,7 +176,11 @@ class SupabaseService {
     } on FunctionException catch (e) {
       final details = e.details;
       final code = details is Map ? details['error'] as String? : null;
-      throw AuthOtpException(code ?? 'server_error');
+      throw AuthOtpException(
+        code ?? 'server_error',
+        remaining: details is Map ? details['remaining'] as int? : null,
+        retryIn: details is Map ? details['retry_in'] as int? : null,
+      );
     }
   }
 
@@ -84,6 +201,7 @@ class SupabaseService {
   static Future<void> createProfile({
     required String nom,
     required String prenoms,
+    required String pseudo,
     required DateTime dateNaissance,
   }) async {
     final supabase = client!;
@@ -95,8 +213,16 @@ class SupabaseService {
           : '',
       'nom': nom,
       'prenoms': prenoms,
+      'pseudo': pseudo,
       'date_naissance': dateNaissance.toIso8601String().substring(0, 10),
     });
+  }
+
+  /// Vérifie qu'aucun profil n'utilise déjà ce pseudo
+  static Future<bool> isPseudoAvailable(String pseudo) async {
+    final result =
+        await client!.rpc('is_pseudo_available', params: {'p_pseudo': pseudo});
+    return result == true;
   }
 
   /// Récupérer la liste des réseaux
@@ -531,10 +657,47 @@ class SupabaseService {
 }
 
 /// Erreur renvoyée par les fonctions d'authentification (code d'erreur serveur)
+/// Résultat de l'envoi de l'OTP
+class SendOtpResult {
+  /// Compte existant : saisir le code d'accès avant l'envoi du SMS
+  final bool requiresAccessCode;
+
+  /// Code en clair, uniquement en mode développement
+  final String? debugCode;
+
+  const SendOtpResult({this.requiresAccessCode = false, this.debugCode});
+}
+
 class AuthOtpException implements Exception {
   final String code;
-  const AuthOtpException(this.code);
+
+  /// Essais restants (code d'accès incorrect)
+  final int? remaining;
+
+  /// Secondes avant de pouvoir réessayer (blocage / anti-spam)
+  final int? retryIn;
+
+  const AuthOtpException(this.code, {this.remaining, this.retryIn});
 
   @override
   String toString() => 'AuthOtpException($code)';
+}
+
+/// État de blocage du code d'accès
+class AccessLockStatus {
+  final DateTime? lockedUntil;
+  final bool permanentlyLocked;
+
+  const AccessLockStatus({this.lockedUntil, this.permanentlyLocked = false});
+}
+
+/// Coordonnées du support ; null = canal non proposé
+class SupportContacts {
+  final String? whatsapp;
+  final String? phone;
+  final String? email;
+
+  const SupportContacts({this.whatsapp, this.phone, this.email});
+
+  bool get isEmpty => whatsapp == null && phone == null && email == null;
 }
