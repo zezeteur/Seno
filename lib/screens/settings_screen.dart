@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import '../l10n/app_strings.dart';
 import 'package:provider/provider.dart';
 import 'package:hugeicons/hugeicons.dart';
 import '../theme/app_colors.dart';
 import '../providers/theme_provider.dart';
+import '../providers/locale_provider.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -12,7 +14,6 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-
   Widget _buildMenuItem({
     required dynamic icon,
     required String title,
@@ -21,51 +22,81 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required VoidCallback? onTap,
     Color? iconColor,
   }) {
-    return ListTile(
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: (iconColor ?? AppColors.secondary).withOpacity(0.1),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Center(
-          child: HugeIcon(
-            icon: icon,
-            size: 20,
-            color: iconColor ?? AppColors.secondary,
+    return Material(
+      type: MaterialType.transparency,
+      child: ListTile(
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: (iconColor ?? AppColors.secondary).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Center(
+            child: HugeIcon(
+              icon: icon,
+              size: 20,
+              color: iconColor ?? AppColors.secondary,
+            ),
           ),
         ),
+        title: Text(
+          title,
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
+        ),
+        subtitle: subtitle != null
+            ? Text(
+                subtitle,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                    ),
+              )
+            : null,
+        trailing: trailing,
+        onTap: onTap,
       ),
-      title: Text(
-        title,
-        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
-      ),
-      subtitle: subtitle != null
-          ? Text(
-              subtitle,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppColors.textSecondary,
-                    fontSize: 12,
-                  ),
-            )
-          : null,
-      trailing: trailing,
-      onTap: onTap,
     );
   }
 
   String _getThemeModeText(ThemeMode mode) {
     switch (mode) {
       case ThemeMode.system:
-        return 'Système';
+        return context.tr('theme_system');
       case ThemeMode.light:
-        return 'Clair';
+        return context.tr('theme_light');
       case ThemeMode.dark:
-        return 'Sombre';
+        return context.tr('theme_dark');
     }
+  }
+
+  void _showLanguageDialog(LocaleProvider localeProvider) {
+    final current = Localizations.localeOf(context).languageCode;
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(context.tr('choose_language')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final code in ['fr', 'en'])
+              RadioListTile<String>(
+                title: Text(context.tr('lang_$code')),
+                value: code,
+                groupValue: current,
+                onChanged: (value) {
+                  if (value != null) {
+                    localeProvider.setLocale(Locale(value));
+                    Navigator.of(dialogContext).pop();
+                  }
+                },
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -74,6 +105,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final topPadding = mediaQuery.viewPadding.top;
     final bottomPadding = mediaQuery.viewPadding.bottom;
     final themeProvider = Provider.of<ThemeProvider>(context);
+    final localeProvider = Provider.of<LocaleProvider>(context);
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -100,8 +132,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          'Paramètres',
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          context.tr('settings'),
+                          style: Theme.of(context)
+                              .textTheme
+                              .headlineSmall
+                              ?.copyWith(
                                 color: Theme.of(context).colorScheme.onSurface,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 28,
@@ -112,7 +147,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   // Paramètres
                   Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    margin:
+                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                     decoration: BoxDecoration(
                       color: Theme.of(context).colorScheme.surface,
                       borderRadius: BorderRadius.circular(24),
@@ -121,7 +157,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         _buildMenuItem(
                           icon: HugeIcons.strokeRoundedMoon,
-                          title: 'Thème',
+                          title: context.tr('theme'),
                           subtitle: _getThemeModeText(themeProvider.themeMode),
                           trailing: Icon(
                             Icons.chevron_right,
@@ -131,12 +167,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             showDialog(
                               context: context,
                               builder: (context) => AlertDialog(
-                                title: const Text('Choisir le thème'),
+                                title: Text(context.tr('choose_theme')),
                                 content: Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     RadioListTile<ThemeMode>(
-                                      title: const Text('Système'),
+                                      title: Text(context.tr('theme_system')),
                                       value: ThemeMode.system,
                                       groupValue: themeProvider.themeMode,
                                       onChanged: (value) {
@@ -147,7 +183,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       },
                                     ),
                                     RadioListTile<ThemeMode>(
-                                      title: const Text('Clair'),
+                                      title: Text(context.tr('theme_light')),
                                       value: ThemeMode.light,
                                       groupValue: themeProvider.themeMode,
                                       onChanged: (value) {
@@ -158,7 +194,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       },
                                     ),
                                     RadioListTile<ThemeMode>(
-                                      title: const Text('Sombre'),
+                                      title: Text(context.tr('theme_dark')),
                                       value: ThemeMode.dark,
                                       groupValue: themeProvider.themeMode,
                                       onChanged: (value) {
@@ -174,18 +210,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             );
                           },
                         ),
-                        Divider(height: 1, color: AppColors.textSecondary.withOpacity(0.2)),
+                        Divider(
+                            height: 1,
+                            color: AppColors.textSecondary.withOpacity(0.2)),
                         _buildMenuItem(
                           icon: HugeIcons.strokeRoundedGlobe,
-                          title: 'Langue',
-                          subtitle: 'Français',
+                          title: context.tr('language'),
+                          subtitle: context.tr(
+                              Localizations.localeOf(context).languageCode ==
+                                      'en'
+                                  ? 'lang_en'
+                                  : 'lang_fr'),
                           trailing: Icon(
                             Icons.chevron_right,
                             color: AppColors.textSecondary,
                           ),
-                          onTap: () {
-                            // Fonctionnalité à venir
-                          },
+                          onTap: () => _showLanguageDialog(localeProvider),
                         ),
                       ],
                     ),
@@ -201,4 +241,3 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 }
-

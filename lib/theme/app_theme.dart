@@ -10,27 +10,32 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
-      
+
+      // Aucun effet visuel au toucher
+      splashFactory: NoSplash.splashFactory,
+      splashColor: Colors.transparent,
+      highlightColor: Colors.transparent,
+      hoverColor: Colors.transparent,
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(overlayColor: Colors.transparent),
+      ),
+
       // ColorScheme personnalisé
       colorScheme: ColorScheme.light(
         primary: AppColors.primary,
         onPrimary: AppColors.textOnPrimary,
         primaryContainer: AppColors.primaryLight,
         onPrimaryContainer: AppColors.textOnPrimary,
-        
         secondary: AppColors.secondary,
         onSecondary: AppColors.textOnSecondary,
         secondaryContainer: AppColors.secondaryLight,
         onSecondaryContainer: AppColors.textOnSecondary,
-        
         surface: AppColors.surface,
         onSurface: AppColors.textOnPrimary,
         surfaceVariant: AppColors.primaryLight,
         onSurfaceVariant: AppColors.textOnPrimary,
-        
         background: AppColors.background,
         onBackground: AppColors.textOnPrimary,
-        
         error: AppColors.error,
         onError: Colors.white,
         errorContainer: Colors.red.shade100,
@@ -76,6 +81,7 @@ class AppTheme {
       // ElevatedButton Theme
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
+          overlayColor: Colors.transparent,
           backgroundColor: AppColors.secondary,
           foregroundColor: AppColors.textOnSecondary,
           elevation: 2,
@@ -93,6 +99,7 @@ class AppTheme {
       // OutlinedButton Theme
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
+          overlayColor: Colors.transparent,
           foregroundColor: AppColors.secondary,
           side: const BorderSide(color: AppColors.secondary, width: 2),
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
@@ -109,6 +116,7 @@ class AppTheme {
       // TextButton Theme
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
+          overlayColor: Colors.transparent,
           foregroundColor: AppColors.secondary,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           textStyle: const TextStyle(
@@ -142,7 +150,8 @@ class AppTheme {
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: AppColors.error, width: 2),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       ),
 
       // Icon Theme
@@ -259,27 +268,37 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
-      
+
+      // Aucun effet visuel au toucher
+      splashFactory: NoSplash.splashFactory,
+      splashColor: Colors.transparent,
+      highlightColor: Colors.transparent,
+      hoverColor: Colors.transparent,
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(overlayColor: Colors.transparent),
+      ),
+
       // ColorScheme personnalisé pour le mode sombre
       colorScheme: ColorScheme.dark(
-        primary: AppColors.primary, // Garder la même couleur principale qu'en mode clair
+        primary: AppColors
+            .primary, // Garder la même couleur principale qu'en mode clair
         onPrimary: AppColors.textOnPrimary,
         primaryContainer: AppColors.primaryLight,
         onPrimaryContainer: AppColors.textOnPrimary,
-        
+
         secondary: AppColors.darkSecondary,
         onSecondary: AppColors.darkTextOnSecondary,
         secondaryContainer: AppColors.darkSecondaryContainer,
         onSecondaryContainer: AppColors.darkTextOnSecondary,
-        
+
         surface: AppColors.darkSurface,
         onSurface: AppColors.darkTextOnSurface,
         surfaceVariant: AppColors.darkSurfaceVariant,
         onSurfaceVariant: AppColors.darkTextOnSurface,
-        
+
         background: AppColors.darkBackground,
         onBackground: AppColors.darkTextOnSurface,
-        
+
         error: AppColors.error,
         onError: Colors.white,
         errorContainer: Colors.red.shade900,
@@ -325,6 +344,7 @@ class AppTheme {
       // ElevatedButton Theme pour mode sombre
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
+          overlayColor: Colors.transparent,
           backgroundColor: AppColors.darkSecondary,
           foregroundColor: AppColors.darkTextOnSecondary,
           elevation: 2,
@@ -342,6 +362,7 @@ class AppTheme {
       // OutlinedButton Theme pour mode sombre
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
+          overlayColor: Colors.transparent,
           foregroundColor: AppColors.darkSecondary,
           side: const BorderSide(color: AppColors.darkSecondary, width: 2),
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
@@ -358,6 +379,7 @@ class AppTheme {
       // TextButton Theme pour mode sombre
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
+          overlayColor: Colors.transparent,
           foregroundColor: AppColors.darkSecondary,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           textStyle: const TextStyle(
@@ -373,15 +395,18 @@ class AppTheme {
         fillColor: AppColors.darkSurfaceVariant,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.darkSecondary, width: 1),
+          borderSide:
+              const BorderSide(color: AppColors.darkSecondary, width: 1),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.darkSecondary, width: 1),
+          borderSide:
+              const BorderSide(color: AppColors.darkSecondary, width: 1),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.darkSecondary, width: 2),
+          borderSide:
+              const BorderSide(color: AppColors.darkSecondary, width: 2),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
@@ -391,7 +416,8 @@ class AppTheme {
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: AppColors.error, width: 2),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       ),
 
       // Icon Theme pour mode sombre
@@ -494,7 +520,8 @@ class AppTheme {
         backgroundColor: AppColors.darkSurfaceVariant,
         selectedColor: AppColors.darkSecondary,
         labelStyle: const TextStyle(color: AppColors.darkTextOnSurface),
-        secondaryLabelStyle: const TextStyle(color: AppColors.darkTextOnSecondary),
+        secondaryLabelStyle:
+            const TextStyle(color: AppColors.darkTextOnSecondary),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(8),
@@ -503,4 +530,3 @@ class AppTheme {
     );
   }
 }
-

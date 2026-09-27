@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import '../l10n/app_strings.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:hugeicons/hugeicons.dart';
@@ -140,12 +141,10 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
       final double zoneTop = zone.row * zoneHeight;
 
       final double margin = 0.1;
-      final double left =
-          zoneLeft +
+      final double left = zoneLeft +
           margin * zoneWidth +
           _random.nextDouble() * zoneWidth * (1 - 2 * margin);
-      final double top =
-          zoneTop +
+      final double top = zoneTop +
           margin * zoneHeight +
           _random.nextDouble() * zoneHeight * (1 - 2 * margin);
 
@@ -265,9 +264,9 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
                 ),
-                tabs: const [
-                  Tab(text: 'Envoyer'),
-                  Tab(text: 'Recevoir'),
+                tabs: [
+                  Tab(text: context.tr('send')),
+                  Tab(text: context.tr('receive')),
                 ],
                 onTap: (index) {
                   _pageController.animateToPage(
@@ -311,7 +310,8 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
-                              'QR Code scanné: ${barcode.rawValue}',
+                              context.tr('qr_scanned',
+                                  {'value': '${barcode.rawValue}'}),
                             ),
                           ),
                         );
@@ -328,10 +328,10 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
           ),
           const SizedBox(height: 24),
           Text(
-            'Scannez un QR code',
+            context.tr('scan_qr'),
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
           ),
           const SizedBox(height: 16),
           // Bouton torche

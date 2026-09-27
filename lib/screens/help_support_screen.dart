@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../l10n/app_strings.dart';
 import 'package:hugeicons/hugeicons.dart';
 import '../theme/app_colors.dart';
 
@@ -17,42 +18,45 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
     required VoidCallback? onTap,
     Color? iconColor,
   }) {
-    return ListTile(
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: (iconColor ?? AppColors.secondary).withOpacity(0.1),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Center(
-          child: HugeIcon(
-            icon: icon,
-            size: 20,
-            color: iconColor ?? AppColors.secondary,
+    return Material(
+      type: MaterialType.transparency,
+      child: ListTile(
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: (iconColor ?? AppColors.secondary).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Center(
+            child: HugeIcon(
+              icon: icon,
+              size: 20,
+              color: iconColor ?? AppColors.secondary,
+            ),
           ),
         ),
+        title: Text(
+          title,
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
+        ),
+        subtitle: subtitle != null
+            ? Text(
+                subtitle,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                    ),
+              )
+            : null,
+        trailing: Icon(
+          Icons.chevron_right,
+          color: AppColors.textSecondary,
+        ),
+        onTap: onTap,
       ),
-      title: Text(
-        title,
-        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
-      ),
-      subtitle: subtitle != null
-          ? Text(
-              subtitle,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppColors.textSecondary,
-                    fontSize: 12,
-                  ),
-            )
-          : null,
-      trailing: Icon(
-        Icons.chevron_right,
-        color: AppColors.textSecondary,
-      ),
-      onTap: onTap,
     );
   }
 
@@ -87,8 +91,11 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          'Aide et support',
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          context.tr('help_support'),
+                          style: Theme.of(context)
+                              .textTheme
+                              .headlineSmall
+                              ?.copyWith(
                                 color: Theme.of(context).colorScheme.onSurface,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 28,
@@ -97,9 +104,10 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                       ],
                     ),
                   ),
-                  // Centre d'aide
+                  // Contact
                   Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    margin:
+                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                     decoration: BoxDecoration(
                       color: Theme.of(context).colorScheme.surface,
                       borderRadius: BorderRadius.circular(24),
@@ -107,27 +115,9 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                     child: Column(
                       children: [
                         _buildMenuItem(
-                          icon: HugeIcons.strokeRoundedHelpCircle,
-                          title: 'Centre d\'aide',
-                          subtitle: 'Questions fréquentes et guides',
-                          onTap: () {
-                            // Fonctionnalité à venir
-                          },
-                        ),
-                        Divider(height: 1, color: AppColors.textSecondary.withOpacity(0.2)),
-                        _buildMenuItem(
-                          icon: HugeIcons.strokeRoundedBook01,
-                          title: 'Guide d\'utilisation',
-                          subtitle: 'Apprendre à utiliser l\'application',
-                          onTap: () {
-                            // Fonctionnalité à venir
-                          },
-                        ),
-                        Divider(height: 1, color: AppColors.textSecondary.withOpacity(0.2)),
-                        _buildMenuItem(
                           icon: HugeIcons.strokeRoundedMessage01,
-                          title: 'Nous contacter',
-                          subtitle: 'Parlez-nous de votre problème',
+                          title: context.tr('contact_us'),
+                          subtitle: context.tr('contact_us_sub'),
                           onTap: () {
                             // Fonctionnalité à venir
                           },
@@ -137,7 +127,8 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                   ),
                   // Informations
                   Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    margin:
+                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                     decoration: BoxDecoration(
                       color: Theme.of(context).colorScheme.surface,
                       borderRadius: BorderRadius.circular(24),
@@ -146,25 +137,29 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                       children: [
                         _buildMenuItem(
                           icon: HugeIcons.strokeRoundedFile01,
-                          title: 'Conditions d\'utilisation',
+                          title: context.tr('terms'),
                           subtitle: null,
                           onTap: () {
                             // Fonctionnalité à venir
                           },
                         ),
-                        Divider(height: 1, color: AppColors.textSecondary.withOpacity(0.2)),
+                        Divider(
+                            height: 1,
+                            color: AppColors.textSecondary.withOpacity(0.2)),
                         _buildMenuItem(
                           icon: HugeIcons.strokeRoundedLock,
-                          title: 'Politique de confidentialité',
+                          title: context.tr('privacy'),
                           subtitle: null,
                           onTap: () {
                             // Fonctionnalité à venir
                           },
                         ),
-                        Divider(height: 1, color: AppColors.textSecondary.withOpacity(0.2)),
+                        Divider(
+                            height: 1,
+                            color: AppColors.textSecondary.withOpacity(0.2)),
                         _buildMenuItem(
                           icon: HugeIcons.strokeRoundedHelpCircle,
-                          title: 'À propos',
+                          title: context.tr('about'),
                           subtitle: 'Version 1.0.0',
                           onTap: () {
                             // Fonctionnalité à venir
@@ -184,4 +179,3 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
     );
   }
 }
-

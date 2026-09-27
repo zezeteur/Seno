@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../l10n/app_strings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_colors.dart';
 import 'login_screen.dart';
@@ -71,15 +72,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               children: [
                 _buildOnboardingPage(
                   imagePath: 'assets/images/onboarding.png',
-                  title: 'Payez facilement et sans frais !',
-                  description:
-                      'Peu importe votre réseau, payez sans changer de compte',
+                  title: context.tr('onb1_title'),
+                  description: context.tr('onb1_desc'),
                 ),
                 _buildOnboardingPage(
                   imagePath: 'assets/images/onboarding2.png',
-                  title: 'Envoyez de l\'argent, peu importe le réseau !',
-                  description:
-                      'Avec Seno, vous pouvez envoyer de l\'argent facilement d\'un réseau à l\'autre',
+                  title: context.tr('onb2_title'),
+                  description: context.tr('onb2_desc'),
                 ),
               ],
             ),
@@ -106,6 +105,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 ElevatedButton(
                   onPressed: _nextPage,
                   style: ElevatedButton.styleFrom(
+                    overlayColor: Colors.transparent,
                     backgroundColor: AppColors.secondary,
                     foregroundColor: Colors.white,
                     elevation: 0,

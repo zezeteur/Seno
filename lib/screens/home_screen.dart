@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../l10n/app_strings.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -49,7 +50,7 @@ class _HomeScreenState extends State<HomeScreen> {
         return emailParts[0];
       }
     }
-    return 'Utilisateur';
+    return context.tr('user');
   }
 
   String _getQRCodeData() {
@@ -212,7 +213,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     // Send money section
                     Text(
-                      'Envoyer de l\'argent',
+                      context.tr('send_money'),
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
                             color: Colors.black,
                             fontWeight: FontWeight.w600,
@@ -237,7 +238,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           _buildSendContact(
                             context,
                             icon: HugeIcons.strokeRoundedArrowRight01,
-                            label: 'Envoyer',
+                            label: context.tr('send'),
                             isIcon: true,
                           ),
                           const SizedBox(width: 12),
@@ -355,7 +356,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    'Aujourd\'hui',
+                    context.tr('today'),
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           color: Theme.of(context).colorScheme.onSurface,
                           fontWeight: FontWeight.w600,
@@ -387,7 +388,7 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: HugeIcons.strokeRoundedHome01,
             iconColor: Colors.red,
             title: 'AirBnb',
-            category: 'Logement',
+            category: context.tr('cat_housing'),
             amount: '- 200',
             isNegative: true,
           ),
@@ -403,7 +404,7 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: HugeIcons.strokeRoundedRestaurant01,
             iconColor: Colors.green.shade700,
             title: 'McDonald\'s',
-            category: 'Restaurant',
+            category: context.tr('cat_restaurant'),
             amount: '- 1,123.10',
             isNegative: true,
           ),
@@ -414,7 +415,7 @@ class _HomeScreenState extends State<HomeScreen> {
             context,
             icon: HugeIcons.strokeRoundedCoinsSwap,
             iconColor: Theme.of(context).colorScheme.onSurface,
-            title: 'Transfert',
+            title: context.tr('transfer'),
             category: '*4243',
             amount: '+ 153.54',
             isNegative: false,
@@ -427,7 +428,7 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: HugeIcons.strokeRoundedCar01,
             iconColor: Colors.black,
             title: 'Uber',
-            category: 'Transport',
+            category: context.tr('cat_transport'),
             amount: '- 2,500',
             isNegative: true,
           ),
@@ -438,8 +439,8 @@ class _HomeScreenState extends State<HomeScreen> {
             context,
             icon: HugeIcons.strokeRoundedCoinsSwap,
             iconColor: Colors.green,
-            title: 'Salaire',
-            category: 'Revenu',
+            title: context.tr('salary'),
+            category: context.tr('cat_income'),
             amount: '+ 150,000',
             isNegative: false,
           ),
@@ -451,7 +452,7 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: HugeIcons.strokeRoundedPlay,
             iconColor: Colors.red.shade700,
             title: 'Netflix',
-            category: 'Abonnement',
+            category: context.tr('cat_subscription'),
             amount: '- 5,000',
             isNegative: true,
           ),
@@ -462,8 +463,8 @@ class _HomeScreenState extends State<HomeScreen> {
             context,
             icon: HugeIcons.strokeRoundedShoppingBag01,
             iconColor: Colors.blue,
-            title: 'Pharmacie',
-            category: 'Santé',
+            title: context.tr('pharmacy'),
+            category: context.tr('cat_health'),
             amount: '- 8,750',
             isNegative: true,
           ),
@@ -474,8 +475,8 @@ class _HomeScreenState extends State<HomeScreen> {
             context,
             icon: HugeIcons.strokeRoundedShoppingCart01,
             iconColor: Colors.orange,
-            title: 'Supermarché',
-            category: 'Courses',
+            title: context.tr('supermarket'),
+            category: context.tr('cat_groceries'),
             amount: '- 12,300',
             isNegative: true,
           ),
@@ -487,7 +488,7 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: HugeIcons.strokeRoundedPlay,
             iconColor: Colors.green.shade600,
             title: 'Spotify',
-            category: 'Abonnement',
+            category: context.tr('cat_subscription'),
             amount: '- 2,500',
             isNegative: true,
           ),
@@ -498,8 +499,8 @@ class _HomeScreenState extends State<HomeScreen> {
             context,
             icon: HugeIcons.strokeRoundedCar01,
             iconColor: Colors.amber.shade700,
-            title: 'Station-service',
-            category: 'Transport',
+            title: context.tr('gas_station'),
+            category: context.tr('cat_transport'),
             amount: '- 15,000',
             isNegative: true,
           ),
@@ -510,7 +511,7 @@ class _HomeScreenState extends State<HomeScreen> {
             context,
             icon: HugeIcons.strokeRoundedCoinsSwap,
             iconColor: Colors.green,
-            title: 'Virement reçu',
+            title: context.tr('transfer_received'),
             category: 'Marie Dupont',
             amount: '+ 25,000',
             isNegative: false,
@@ -523,7 +524,7 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: HugeIcons.strokeRoundedRestaurant01,
             iconColor: Colors.brown,
             title: 'Starbucks',
-            category: 'Café',
+            category: context.tr('cat_cafe'),
             amount: '- 3,500',
             isNegative: true,
           ),
@@ -535,7 +536,7 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: HugeIcons.strokeRoundedShoppingBag01,
             iconColor: Colors.orange.shade700,
             title: 'Amazon',
-            category: 'Achat en ligne',
+            category: context.tr('cat_online'),
             amount: '- 45,000',
             isNegative: true,
           ),
@@ -546,8 +547,8 @@ class _HomeScreenState extends State<HomeScreen> {
             context,
             icon: HugeIcons.strokeRoundedWallet01,
             iconColor: Colors.blue.shade700,
-            title: 'Frais bancaires',
-            category: 'Banque',
+            title: context.tr('bank_fees'),
+            category: context.tr('cat_bank'),
             amount: '- 1,000',
             isNegative: true,
           ),
@@ -558,8 +559,8 @@ class _HomeScreenState extends State<HomeScreen> {
             context,
             icon: HugeIcons.strokeRoundedPlay,
             iconColor: Colors.purple,
-            title: 'Cinéma',
-            category: 'Divertissement',
+            title: context.tr('cinema'),
+            category: context.tr('cat_entertainment'),
             amount: '- 5,500',
             isNegative: true,
           ),
@@ -668,7 +669,7 @@ class _HomeScreenState extends State<HomeScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Ajouter votre carte ou compte',
+                  context.tr('add_card_title'),
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.w600,
@@ -677,7 +678,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Ajouter des cartes et comptes illimités',
+                  context.tr('add_card_sub'),
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: Colors.white.withOpacity(0.8),
                         fontSize: 12,
@@ -720,28 +721,28 @@ class _HomeScreenState extends State<HomeScreen> {
                 icon: HugeIcons.strokeRoundedHome01,
                 isSelected: _currentIndex == 0,
               ),
-              label: 'Accueil',
+              label: context.tr('nav_home'),
             ),
             BottomNavigationBarItem(
               icon: _buildNavIcon(
                 icon: HugeIcons.strokeRoundedWallet01,
                 isSelected: _currentIndex == 1,
               ),
-              label: 'Portefeuille',
+              label: context.tr('nav_wallet'),
             ),
             BottomNavigationBarItem(
               icon: _buildNavIcon(
                 icon: HugeIcons.strokeRoundedChart01,
                 isSelected: _currentIndex == 2,
               ),
-              label: 'Statistiques',
+              label: context.tr('nav_stats'),
             ),
             BottomNavigationBarItem(
               icon: _buildNavIcon(
                 icon: HugeIcons.strokeRoundedAiUser,
                 isSelected: _currentIndex == 3,
               ),
-              label: 'Compte',
+              label: context.tr('nav_account'),
             ),
           ],
         ),

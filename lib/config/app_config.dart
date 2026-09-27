@@ -8,11 +8,11 @@ class AppConfig {
   // ============================================
 
   /// URL de votre projet Supabase
-  static const String supabaseUrl = 'https://klgtxkmjagrydvxjulnn.supabase.co';
+  static const String supabaseUrl = 'https://jbgnipiavizocgabelcn.supabase.co';
 
   /// Clé anonyme (anon key) de Supabase
   static const String supabaseAnonKey =
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtsZ3R4a21qYWdyeWR2eGp1bG5uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMxNDM4MzYsImV4cCI6MjA3ODcxOTgzNn0.U1P0I9NJDwkEBnhYbEFtcKUkZ5FbFFaTmV0k_IIp0ec';
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpiZ25pcGlhdml6b2NnYWJlbGNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0NDE2NzcsImV4cCI6MjEwNjAxNzY3N30.TPZn92OFCwztIWwAOzXnJ5hGn32CcLGRCsseEg2X0Qw';
 
   /// Clé secrète de service (service role key) de Supabase
   /// ⚠️ Ne jamais exposer cette clé côté client !

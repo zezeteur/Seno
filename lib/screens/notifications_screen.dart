@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../l10n/app_strings.dart';
 import 'package:hugeicons/hugeicons.dart';
 import '../theme/app_colors.dart';
 
@@ -24,39 +25,42 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     required VoidCallback? onTap,
     Color? iconColor,
   }) {
-    return ListTile(
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: (iconColor ?? AppColors.secondary).withOpacity(0.1),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Center(
-          child: HugeIcon(
-            icon: icon,
-            size: 20,
-            color: iconColor ?? AppColors.secondary,
+    return Material(
+      type: MaterialType.transparency,
+      child: ListTile(
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: (iconColor ?? AppColors.secondary).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Center(
+            child: HugeIcon(
+              icon: icon,
+              size: 20,
+              color: iconColor ?? AppColors.secondary,
+            ),
           ),
         ),
+        title: Text(
+          title,
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
+        ),
+        subtitle: subtitle != null
+            ? Text(
+                subtitle,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                    ),
+              )
+            : null,
+        trailing: trailing,
+        onTap: onTap,
       ),
-      title: Text(
-        title,
-        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
-      ),
-      subtitle: subtitle != null
-          ? Text(
-              subtitle,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppColors.textSecondary,
-                    fontSize: 12,
-                  ),
-            )
-          : null,
-      trailing: trailing,
-      onTap: onTap,
     );
   }
 
@@ -91,8 +95,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          'Notifications',
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          context.tr('notifications'),
+                          style: Theme.of(context)
+                              .textTheme
+                              .headlineSmall
+                              ?.copyWith(
                                 color: Theme.of(context).colorScheme.onSurface,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 28,
@@ -103,7 +110,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   ),
                   // Notifications générales
                   Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    margin:
+                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                     decoration: BoxDecoration(
                       color: Theme.of(context).colorScheme.surface,
                       borderRadius: BorderRadius.circular(24),
@@ -112,8 +120,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       children: [
                         _buildMenuItem(
                           icon: HugeIcons.strokeRoundedNotification01,
-                          title: 'Notifications push',
-                          subtitle: 'Recevoir des notifications sur votre appareil',
+                          title: context.tr('push_notif'),
+                          subtitle: context.tr('push_notif_sub'),
                           trailing: Switch(
                             value: _pushNotificationsEnabled,
                             onChanged: (value) {
@@ -125,11 +133,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           ),
                           onTap: null,
                         ),
-                        Divider(height: 1, color: AppColors.textSecondary.withOpacity(0.2)),
+                        Divider(
+                            height: 1,
+                            color: AppColors.textSecondary.withOpacity(0.2)),
                         _buildMenuItem(
                           icon: HugeIcons.strokeRoundedMail01,
-                          title: 'Notifications email',
-                          subtitle: 'Recevoir des notifications par email',
+                          title: context.tr('email_notif'),
+                          subtitle: context.tr('email_notif_sub'),
                           trailing: Switch(
                             value: _emailNotificationsEnabled,
                             onChanged: (value) {
@@ -146,7 +156,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   ),
                   // Types de notifications
                   Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    margin:
+                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                     decoration: BoxDecoration(
                       color: Theme.of(context).colorScheme.surface,
                       borderRadius: BorderRadius.circular(24),
@@ -155,8 +166,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       children: [
                         _buildMenuItem(
                           icon: HugeIcons.strokeRoundedCoinsSwap,
-                          title: 'Transactions',
-                          subtitle: 'Notifications pour vos transactions',
+                          title: context.tr('transactions'),
+                          subtitle: context.tr('transactions_sub'),
                           trailing: Switch(
                             value: _transactionNotificationsEnabled,
                             onChanged: (value) {
@@ -168,11 +179,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           ),
                           onTap: null,
                         ),
-                        Divider(height: 1, color: AppColors.textSecondary.withOpacity(0.2)),
+                        Divider(
+                            height: 1,
+                            color: AppColors.textSecondary.withOpacity(0.2)),
                         _buildMenuItem(
                           icon: HugeIcons.strokeRoundedShoppingBag01,
-                          title: 'Promotions',
-                          subtitle: 'Offres et promotions spéciales',
+                          title: context.tr('promotions'),
+                          subtitle: context.tr('promotions_sub'),
                           trailing: Switch(
                             value: _promotionNotificationsEnabled,
                             onChanged: (value) {
@@ -184,11 +197,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           ),
                           onTap: null,
                         ),
-                        Divider(height: 1, color: AppColors.textSecondary.withOpacity(0.2)),
+                        Divider(
+                            height: 1,
+                            color: AppColors.textSecondary.withOpacity(0.2)),
                         _buildMenuItem(
                           icon: HugeIcons.strokeRoundedLock,
-                          title: 'Sécurité',
-                          subtitle: 'Alertes de sécurité importantes',
+                          title: context.tr('security'),
+                          subtitle: context.tr('security_alerts_sub'),
                           trailing: Switch(
                             value: _securityNotificationsEnabled,
                             onChanged: (value) {
@@ -214,4 +229,3 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 }
-

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../l10n/app_strings.dart';
 import 'package:hugeicons/hugeicons.dart';
 import '../theme/app_colors.dart';
 
@@ -20,39 +21,42 @@ class _SecurityScreenState extends State<SecurityScreen> {
     required VoidCallback? onTap,
     Color? iconColor,
   }) {
-    return ListTile(
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: (iconColor ?? AppColors.secondary).withOpacity(0.1),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Center(
-          child: HugeIcon(
-            icon: icon,
-            size: 20,
-            color: iconColor ?? AppColors.secondary,
+    return Material(
+      type: MaterialType.transparency,
+      child: ListTile(
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: (iconColor ?? AppColors.secondary).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Center(
+            child: HugeIcon(
+              icon: icon,
+              size: 20,
+              color: iconColor ?? AppColors.secondary,
+            ),
           ),
         ),
+        title: Text(
+          title,
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
+        ),
+        subtitle: subtitle != null
+            ? Text(
+                subtitle,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                    ),
+              )
+            : null,
+        trailing: trailing,
+        onTap: onTap,
       ),
-      title: Text(
-        title,
-        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
-      ),
-      subtitle: subtitle != null
-          ? Text(
-              subtitle,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppColors.textSecondary,
-                    fontSize: 12,
-                  ),
-            )
-          : null,
-      trailing: trailing,
-      onTap: onTap,
     );
   }
 
@@ -87,8 +91,11 @@ class _SecurityScreenState extends State<SecurityScreen> {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          'Sécurité',
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          context.tr('security'),
+                          style: Theme.of(context)
+                              .textTheme
+                              .headlineSmall
+                              ?.copyWith(
                                 color: Theme.of(context).colorScheme.onSurface,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 28,
@@ -99,7 +106,8 @@ class _SecurityScreenState extends State<SecurityScreen> {
                   ),
                   // Authentification
                   Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    margin:
+                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                     decoration: BoxDecoration(
                       color: Theme.of(context).colorScheme.surface,
                       borderRadius: BorderRadius.circular(24),
@@ -108,8 +116,8 @@ class _SecurityScreenState extends State<SecurityScreen> {
                       children: [
                         _buildMenuItem(
                           icon: HugeIcons.strokeRoundedAiScan,
-                          title: 'Authentification biométrique',
-                          subtitle: 'Utiliser l\'empreinte ou le visage',
+                          title: context.tr('biometric'),
+                          subtitle: context.tr('biometric_sub'),
                           trailing: Switch(
                             value: _biometricEnabled,
                             onChanged: (value) {
@@ -126,7 +134,8 @@ class _SecurityScreenState extends State<SecurityScreen> {
                   ),
                   // Mot de passe
                   Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    margin:
+                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                     decoration: BoxDecoration(
                       color: Theme.of(context).colorScheme.surface,
                       borderRadius: BorderRadius.circular(24),
@@ -135,7 +144,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
                       children: [
                         _buildMenuItem(
                           icon: HugeIcons.strokeRoundedLock,
-                          title: 'Changer le mot de passe',
+                          title: context.tr('change_password'),
                           subtitle: null,
                           trailing: Icon(
                             Icons.chevron_right,
@@ -159,4 +168,3 @@ class _SecurityScreenState extends State<SecurityScreen> {
     );
   }
 }
-

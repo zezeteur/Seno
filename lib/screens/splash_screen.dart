@@ -4,11 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_colors.dart';
-import '../services/supabase_service.dart';
+import '../utils/post_login.dart';
 import 'onboarding_screen.dart';
 import 'login_screen.dart';
-import 'home_screen.dart';
-import 'wallet_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -199,32 +197,8 @@ class _SplashScreenState extends State<SplashScreen> {
       final session = supabase.auth.currentSession;
 
       if (session != null) {
-        // L'utilisateur est déjà connecté, vérifier s'il a des comptes
-        try {
-          final comptes = await SupabaseService.getComptes();
-          if (comptes.isEmpty) {
-            // Aucun compte, rediriger vers la page portefeuille
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(
-                builder: (_) => const WalletScreen(),
-              ),
-            );
-          } else {
-            // L'utilisateur a des comptes, aller à la page d'accueil
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(
-                builder: (_) => const HomeScreen(),
-              ),
-            );
-          }
-        } catch (e) {
-          // En cas d'erreur lors de la récupération des comptes, aller à la page d'accueil
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(
-              builder: (_) => const HomeScreen(),
-            ),
-          );
-        }
+        // Déjà connecté : inscription, portefeuille ou accueil
+        await navigateAfterLogin(context);
         return;
       }
 

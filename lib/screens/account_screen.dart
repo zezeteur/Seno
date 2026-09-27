@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../l10n/app_strings.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:lottie/lottie.dart';
@@ -37,7 +38,7 @@ class _AccountScreenState extends State<AccountScreen> {
         return emailParts[0];
       }
     }
-    return 'Utilisateur';
+    return context.tr('user');
   }
 
   String _getUserEmail() {
@@ -54,16 +55,16 @@ class _AccountScreenState extends State<AccountScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Déconnexion'),
-        content: const Text('Êtes-vous sûr de vouloir vous déconnecter ?'),
+        title: Text(context.tr('logout')),
+        content: Text(context.tr('logout_confirm')),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Annuler'),
+            child: Text(context.tr('cancel')),
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Déconnexion'),
+            child: Text(context.tr('logout')),
           ),
         ],
       ),
@@ -77,11 +78,11 @@ class _AccountScreenState extends State<AccountScreen> {
             MaterialPageRoute(builder: (_) => const LoginScreen()),
             (route) => false,
           );
-          ToastService.showSuccess(context, 'Déconnexion réussie');
+          ToastService.showSuccess(context, context.tr('logout_success'));
         }
       } catch (e) {
         if (mounted) {
-          ToastService.showError(context, 'Erreur lors de la déconnexion');
+          ToastService.showError(context, context.tr('logout_error'));
         }
       }
     }
@@ -170,33 +171,36 @@ class _AccountScreenState extends State<AccountScreen> {
     required VoidCallback onTap,
     Color? iconColor,
   }) {
-    return ListTile(
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: (iconColor ?? AppColors.secondary).withOpacity(0.1),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Center(
-          child: HugeIcon(
-            icon: icon,
-            size: 20,
-            color: iconColor ?? AppColors.secondary,
+    return Material(
+      type: MaterialType.transparency,
+      child: ListTile(
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: (iconColor ?? AppColors.secondary).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Center(
+            child: HugeIcon(
+              icon: icon,
+              size: 20,
+              color: iconColor ?? AppColors.secondary,
+            ),
           ),
         ),
+        title: Text(
+          title,
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
+        ),
+        trailing: Icon(
+          Icons.chevron_right,
+          color: AppColors.textSecondary,
+        ),
+        onTap: onTap,
       ),
-      title: Text(
-        title,
-        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
-      ),
-      trailing: Icon(
-        Icons.chevron_right,
-        color: AppColors.textSecondary,
-      ),
-      onTap: onTap,
     );
   }
 
@@ -240,7 +244,7 @@ class _AccountScreenState extends State<AccountScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'Devenir un marchand',
+                                    context.tr('become_merchant'),
                                     style: Theme.of(context)
                                         .textTheme
                                         .bodyLarge
@@ -252,7 +256,7 @@ class _AccountScreenState extends State<AccountScreen> {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    'Acceptez les paiements facilement',
+                                    context.tr('accept_payments'),
                                     style: Theme.of(context)
                                         .textTheme
                                         .bodySmall
@@ -298,7 +302,7 @@ class _AccountScreenState extends State<AccountScreen> {
                       children: [
                         _buildMenuItem(
                           icon: HugeIcons.strokeRoundedSettings01,
-                          title: 'Paramètres',
+                          title: context.tr('settings'),
                           onTap: () {
                             Navigator.of(context).push(
                               MaterialPageRoute(
@@ -312,7 +316,7 @@ class _AccountScreenState extends State<AccountScreen> {
                             color: AppColors.textSecondary.withOpacity(0.2)),
                         _buildMenuItem(
                           icon: HugeIcons.strokeRoundedLock,
-                          title: 'Sécurité',
+                          title: context.tr('security'),
                           onTap: () {
                             Navigator.of(context).push(
                               MaterialPageRoute(
@@ -326,7 +330,7 @@ class _AccountScreenState extends State<AccountScreen> {
                             color: AppColors.textSecondary.withOpacity(0.2)),
                         _buildMenuItem(
                           icon: HugeIcons.strokeRoundedNotification01,
-                          title: 'Notifications',
+                          title: context.tr('notifications'),
                           onTap: () {
                             Navigator.of(context).push(
                               MaterialPageRoute(
@@ -340,7 +344,7 @@ class _AccountScreenState extends State<AccountScreen> {
                             color: AppColors.textSecondary.withOpacity(0.2)),
                         _buildMenuItem(
                           icon: HugeIcons.strokeRoundedHelpCircle,
-                          title: 'Aide et support',
+                          title: context.tr('help_support'),
                           onTap: () {
                             Navigator.of(context).push(
                               MaterialPageRoute(
@@ -358,7 +362,7 @@ class _AccountScreenState extends State<AccountScreen> {
                         const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                     child: _buildMenuItem(
                       icon: HugeIcons.strokeRoundedLogout01,
-                      title: 'Déconnexion',
+                      title: context.tr('logout'),
                       onTap: _handleSignOut,
                       iconColor: Colors.red,
                     ),

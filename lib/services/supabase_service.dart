@@ -34,6 +34,71 @@ class SupabaseService {
   /// Vérifier si Supabase est configuré
   static bool get isConfigured => AppConfig.isSupabaseConfigured();
 
+  // ============================================
+  // AUTHENTIFICATION PAR TÉLÉPHONE (OTP 4 chiffres)
+  // ============================================
+
+  /// Envoie un code à 4 chiffres par SMS.
+  /// Retourne le code uniquement en mode développement (aucun fournisseur SMS).
+  static Future<String?> sendOtp(String phone) async {
+    final data = await _invokeAuth('send-otp', {'phone': phone});
+    return data['debug_code'] as String?;
+  }
+
+  /// Vérifie le code, ouvre la session et indique si c'est une inscription
+  static Future<bool> verifyOtp(String phone, String code) async {
+    final data =
+        await _invokeAuth('verify-otp', {'phone': phone, 'code': code});
+    await client!.auth.setSession(data['refresh_token'] as String);
+    return data['is_new_user'] as bool? ?? false;
+  }
+
+  static Future<Map<String, dynamic>> _invokeAuth(
+      String function, Map<String, dynamic> body) async {
+    final supabase = client;
+    if (supabase == null) throw const AuthOtpException('service_unavailable');
+    try {
+      final res = await supabase.functions.invoke(function, body: body);
+      return Map<String, dynamic>.from(res.data as Map);
+    } on FunctionException catch (e) {
+      final details = e.details;
+      final code = details is Map ? details['error'] as String? : null;
+      throw AuthOtpException(code ?? 'server_error');
+    }
+  }
+
+  /// Le profil de l'utilisateur connecté existe-t-il ?
+  static Future<bool> hasProfile() async {
+    final supabase = client;
+    final userId = supabase?.auth.currentUser?.id;
+    if (supabase == null || userId == null) return false;
+    final row = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', userId)
+        .maybeSingle();
+    return row != null;
+  }
+
+  /// Crée le profil à l'inscription
+  static Future<void> createProfile({
+    required String nom,
+    required String prenoms,
+    required DateTime dateNaissance,
+  }) async {
+    final supabase = client!;
+    final user = supabase.auth.currentUser!;
+    await supabase.from('profiles').insert({
+      'id': user.id,
+      'phone': user.phone != null && user.phone!.isNotEmpty
+          ? (user.phone!.startsWith('+') ? user.phone : '+${user.phone}')
+          : '',
+      'nom': nom,
+      'prenoms': prenoms,
+      'date_naissance': dateNaissance.toIso8601String().substring(0, 10),
+    });
+  }
+
   /// Récupérer la liste des réseaux
   static Future<List<Reseau>> getReseaux() async {
     try {
@@ -463,4 +528,13 @@ class SupabaseService {
       throw Exception('Erreur lors de la suppression du compte: $e');
     }
   }
+}
+
+/// Erreur renvoyée par les fonctions d'authentification (code d'erreur serveur)
+class AuthOtpException implements Exception {
+  final String code;
+  const AuthOtpException(this.code);
+
+  @override
+  String toString() => 'AuthOtpException($code)';
 }

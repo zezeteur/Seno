@@ -160,4 +160,3 @@ class ToastService {
     _currentOverlay = null;
   }
 }
-

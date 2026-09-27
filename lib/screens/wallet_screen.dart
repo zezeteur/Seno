@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../l10n/app_strings.dart';
 import 'package:flutter/services.dart';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:shimmer/shimmer.dart';
@@ -385,7 +386,7 @@ class _WalletScreenState extends State<WalletScreen>
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'RESEAU',
+                                context.tr('network_upper'),
                                 style: TextStyle(
                                   color: Colors.white.withOpacity(0.7),
                                   fontSize: 10,
@@ -454,7 +455,7 @@ class _WalletScreenState extends State<WalletScreen>
             ),
             const SizedBox(height: 16),
             Text(
-              'Ajouter un compte',
+              context.tr('add_account'),
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: Theme.of(context).colorScheme.onSurface,
@@ -462,7 +463,7 @@ class _WalletScreenState extends State<WalletScreen>
             ),
             const SizedBox(height: 8),
             Text(
-              'Appuyez pour ajouter un nouveau compte mobile money',
+              context.tr('add_account_sub'),
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context)
@@ -581,7 +582,7 @@ class _WalletScreenState extends State<WalletScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'RESEAU',
+                    context.tr('network_upper'),
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.7),
                       fontSize: 10,
@@ -684,8 +685,8 @@ class _WalletScreenState extends State<WalletScreen>
                             ),
                   title: Text(
                     isDefault
-                        ? 'Compte par défaut'
-                        : 'Définir comme compte par défaut',
+                        ? context.tr('default_account')
+                        : context.tr('set_default'),
                   ),
                   enabled: !isDefault && compteId != _loadingDefaultCompteId,
                   onTap: isDefault || compteId == _loadingDefaultCompteId
@@ -728,7 +729,7 @@ class _WalletScreenState extends State<WalletScreen>
                     size: 24,
                     color: Theme.of(context).colorScheme.onSurface,
                   ),
-                  title: const Text('Modifier'),
+                  title: Text(context.tr('edit')),
                   onTap: () {
                     Navigator.pop(context);
                     if (compteId != null) {
@@ -744,7 +745,7 @@ class _WalletScreenState extends State<WalletScreen>
                     color: Theme.of(context).colorScheme.error,
                   ),
                   title: Text(
-                    'Supprimer',
+                    context.tr('delete'),
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.error,
                     ),
@@ -790,7 +791,7 @@ class _WalletScreenState extends State<WalletScreen>
                     child: Row(
                       children: [
                         Text(
-                          'Portefeuille',
+                          context.tr('nav_wallet'),
                           style: Theme.of(context)
                               .textTheme
                               .headlineSmall
@@ -820,7 +821,7 @@ class _WalletScreenState extends State<WalletScreen>
                       child: Column(
                         children: [
                           Text(
-                            'Erreur: $_errorMessage',
+                            context.tr('error_x', {'error': '$_errorMessage'}),
                             style: TextStyle(
                               color: Theme.of(context).colorScheme.error,
                             ),
@@ -829,15 +830,15 @@ class _WalletScreenState extends State<WalletScreen>
                           const SizedBox(height: 16),
                           ElevatedButton(
                             onPressed: _loadReseaux,
-                            child: const Text('Réessayer'),
+                            child: Text(context.tr('retry')),
                           ),
                         ],
                       ),
                     )
                   else if (_reseaux.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.all(20.0),
-                      child: Text('Aucun réseau disponible'),
+                    Padding(
+                      padding: const EdgeInsets.all(20.0),
+                      child: Text(context.tr('no_network')),
                     )
                   else
                     _comptes.isEmpty
@@ -921,6 +922,7 @@ class _WalletScreenState extends State<WalletScreen>
                                               _showAddAccountModal(context);
                                             },
                                             style: ElevatedButton.styleFrom(
+                                              overlayColor: Colors.transparent,
                                               backgroundColor: Theme.of(context)
                                                   .colorScheme
                                                   .primary,
@@ -953,7 +955,7 @@ class _WalletScreenState extends State<WalletScreen>
                                                 ),
                                                 const SizedBox(width: 12),
                                                 Text(
-                                                  'Ajouter un compte',
+                                                  context.tr('add_account'),
                                                   style: TextStyle(
                                                     fontSize: 16,
                                                     fontWeight: FontWeight.w600,
@@ -1056,8 +1058,8 @@ class _WalletScreenState extends State<WalletScreen>
                   // Titre
                   Text(
                     _addAccountStep == 0
-                        ? 'Choisir un réseau'
-                        : 'Entrer le numéro',
+                        ? context.tr('choose_network')
+                        : context.tr('enter_number'),
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
@@ -1079,7 +1081,7 @@ class _WalletScreenState extends State<WalletScreen>
                               ),
                               const SizedBox(height: 16),
                               Text(
-                                'Tous les réseaux ont été ajoutés',
+                                context.tr('all_networks_added'),
                                 style: Theme.of(context)
                                     .textTheme
                                     .titleMedium
@@ -1188,6 +1190,7 @@ class _WalletScreenState extends State<WalletScreen>
                                   });
                                 },
                           style: ElevatedButton.styleFrom(
+                            overlayColor: Colors.transparent,
                             backgroundColor: AppColors.secondary,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 16),
@@ -1196,8 +1199,8 @@ class _WalletScreenState extends State<WalletScreen>
                             ),
                             elevation: 0,
                           ),
-                          child: const Text(
-                            'Suivant',
+                          child: Text(
+                            context.tr('next'),
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
@@ -1245,7 +1248,7 @@ class _WalletScreenState extends State<WalletScreen>
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Réseau sélectionné',
+                                context.tr('selected_network'),
                                 style: Theme.of(context)
                                     .textTheme
                                     .bodySmall
@@ -1270,7 +1273,7 @@ class _WalletScreenState extends State<WalletScreen>
                     const SizedBox(height: 24),
                     // Champ numéro de téléphone
                     Text(
-                      'Numéro de téléphone',
+                      context.tr('phone_number'),
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w600,
                           ),
@@ -1285,7 +1288,7 @@ class _WalletScreenState extends State<WalletScreen>
                         setModalState(() {});
                       },
                       decoration: InputDecoration(
-                        hintText: 'Entrez votre numéro',
+                        hintText: context.tr('enter_your_number'),
                         filled: false,
                         counterText: '',
                         border: OutlineInputBorder(
@@ -1345,6 +1348,7 @@ class _WalletScreenState extends State<WalletScreen>
                                 );
                               },
                         style: ElevatedButton.styleFrom(
+                          overlayColor: Colors.transparent,
                           backgroundColor: AppColors.secondary,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 16),
@@ -1353,8 +1357,8 @@ class _WalletScreenState extends State<WalletScreen>
                           ),
                           elevation: 0,
                         ),
-                        child: const Text(
-                          'Ajouter',
+                        child: Text(
+                          context.tr('add'),
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
@@ -1382,7 +1386,7 @@ class _WalletScreenState extends State<WalletScreen>
 
     // Vérifier la longueur minimale
     if (numero.length < 10) {
-      return 'Le numéro doit contenir 10 chiffres';
+      return context.tr('number_10_digits');
     }
 
     if (numero.length < 2) {
@@ -1394,19 +1398,19 @@ class _WalletScreenState extends State<WalletScreen>
 
     if (reseauName.contains('moov')) {
       if (prefix != '01') {
-        return 'Le numéro Moov doit commencer par 01';
+        return context.tr('moov_prefix');
       }
     } else if (reseauName.contains('orange')) {
       if (prefix != '07') {
-        return 'Le numéro Orange doit commencer par 07';
+        return context.tr('orange_prefix');
       }
     } else if (reseauName.contains('mtn')) {
       if (prefix != '05') {
-        return 'Le numéro MTN doit commencer par 05';
+        return context.tr('mtn_prefix');
       }
     } else if (reseauName.contains('wave')) {
       if (prefix != '01' && prefix != '07' && prefix != '05') {
-        return 'Le numéro Wave doit commencer par 01, 07 ou 05';
+        return context.tr('wave_prefix');
       }
     }
 
@@ -1461,7 +1465,7 @@ class _WalletScreenState extends State<WalletScreen>
                 ),
                 // Titre
                 Text(
-                  'Confirmer le numéro',
+                  context.tr('confirm_number'),
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
@@ -1509,7 +1513,7 @@ class _WalletScreenState extends State<WalletScreen>
                 ),
                 const SizedBox(height: 24),
                 Text(
-                  'Retapez le numéro pour confirmer',
+                  context.tr('retype_to_confirm'),
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
@@ -1524,7 +1528,7 @@ class _WalletScreenState extends State<WalletScreen>
                     setDialogState(() {});
                   },
                   decoration: InputDecoration(
-                    hintText: 'Entrez le numéro',
+                    hintText: context.tr('enter_the_number'),
                     filled: false,
                     counterText: '',
                     border: OutlineInputBorder(
@@ -1564,7 +1568,7 @@ class _WalletScreenState extends State<WalletScreen>
                     ),
                     errorText: _confirmationController.text.isNotEmpty &&
                             _confirmationController.text != numero
-                        ? 'Les numéros ne correspondent pas'
+                        ? context.tr('numbers_mismatch')
                         : null,
                   ),
                 ),
@@ -1586,7 +1590,7 @@ class _WalletScreenState extends State<WalletScreen>
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Ce compte sera défini comme compte par défaut',
+                            context.tr('will_be_default'),
                             style:
                                 Theme.of(context).textTheme.bodySmall?.copyWith(
                                       color: AppColors.secondary,
@@ -1608,6 +1612,7 @@ class _WalletScreenState extends State<WalletScreen>
                           Navigator.pop(context);
                         },
                         style: TextButton.styleFrom(
+                          overlayColor: Colors.transparent,
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(20),
@@ -1617,7 +1622,7 @@ class _WalletScreenState extends State<WalletScreen>
                           ),
                         ),
                         child: Text(
-                          'Annuler',
+                          context.tr('cancel'),
                           style: TextStyle(
                             color: Colors.grey.shade600,
                             fontSize: 16,
@@ -1706,7 +1711,7 @@ class _WalletScreenState extends State<WalletScreen>
                                       if (mounted && context.mounted) {
                                         ToastService.showInfo(
                                           context,
-                                          'Compte ajouté avec succès',
+                                          context.tr('account_added'),
                                         );
                                       }
                                     }
@@ -1719,7 +1724,8 @@ class _WalletScreenState extends State<WalletScreen>
                                     if (context.mounted) {
                                       ToastService.showError(
                                         context,
-                                        'Erreur: ${e.toString()}',
+                                        context.tr(
+                                            'error_x', {'error': e.toString()}),
                                       );
                                     }
                                   }
@@ -1727,6 +1733,7 @@ class _WalletScreenState extends State<WalletScreen>
                               }
                             : null,
                         style: ElevatedButton.styleFrom(
+                          overlayColor: Colors.transparent,
                           backgroundColor: AppColors.secondary,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 16),
@@ -1746,8 +1753,8 @@ class _WalletScreenState extends State<WalletScreen>
                                   ),
                                 ),
                               )
-                            : const Text(
-                                'Confirmer',
+                            : Text(
+                                context.tr('confirm'),
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w600,
@@ -1814,7 +1821,7 @@ class _WalletScreenState extends State<WalletScreen>
                 ),
                 // Titre
                 Text(
-                  'Modifier le compte',
+                  context.tr('edit_account'),
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
@@ -1865,7 +1872,7 @@ class _WalletScreenState extends State<WalletScreen>
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Réseau',
+                            context.tr('network'),
                             style:
                                 Theme.of(context).textTheme.bodySmall?.copyWith(
                                       color: Colors.grey.shade600,
@@ -1889,7 +1896,7 @@ class _WalletScreenState extends State<WalletScreen>
                 const SizedBox(height: 24),
                 // Champ numéro de téléphone
                 Text(
-                  'Numéro de téléphone',
+                  context.tr('phone_number'),
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
@@ -1904,7 +1911,7 @@ class _WalletScreenState extends State<WalletScreen>
                     setModalState(() {});
                   },
                   decoration: InputDecoration(
-                    hintText: 'Entrez votre numéro',
+                    hintText: context.tr('enter_your_number'),
                     filled: false,
                     counterText: '',
                     prefixText: '+225 ',
@@ -1961,6 +1968,7 @@ class _WalletScreenState extends State<WalletScreen>
                           }
                         : null,
                     style: ElevatedButton.styleFrom(
+                      overlayColor: Colors.transparent,
                       backgroundColor: AppColors.secondary,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 16),
@@ -1969,8 +1977,8 @@ class _WalletScreenState extends State<WalletScreen>
                       ),
                       elevation: 0,
                     ),
-                    child: const Text(
-                      'Modifier',
+                    child: Text(
+                      context.tr('edit'),
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
@@ -1996,7 +2004,7 @@ class _WalletScreenState extends State<WalletScreen>
 
     // Vérifier la longueur minimale
     if (numero.length < 10) {
-      return 'Le numéro doit contenir 10 chiffres';
+      return context.tr('number_10_digits');
     }
 
     if (numero.length < 2) {
@@ -2008,19 +2016,19 @@ class _WalletScreenState extends State<WalletScreen>
 
     if (reseauName.contains('moov')) {
       if (prefix != '01') {
-        return 'Le numéro Moov doit commencer par 01';
+        return context.tr('moov_prefix');
       }
     } else if (reseauName.contains('orange')) {
       if (prefix != '07') {
-        return 'Le numéro Orange doit commencer par 07';
+        return context.tr('orange_prefix');
       }
     } else if (reseauName.contains('mtn')) {
       if (prefix != '05') {
-        return 'Le numéro MTN doit commencer par 05';
+        return context.tr('mtn_prefix');
       }
     } else if (reseauName.contains('wave')) {
       if (prefix != '01' && prefix != '07' && prefix != '05') {
-        return 'Le numéro Wave doit commencer par 01, 07 ou 05';
+        return context.tr('wave_prefix');
       }
     }
 
@@ -2075,14 +2083,14 @@ class _WalletScreenState extends State<WalletScreen>
                 ),
                 // Titre
                 Text(
-                  'Confirmer le numéro',
+                  context.tr('confirm_number'),
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'Veuillez retaper le numéro pour confirmer',
+                  context.tr('please_retype'),
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: Colors.grey.shade600,
                       ),
@@ -2152,7 +2160,7 @@ class _WalletScreenState extends State<WalletScreen>
                     setDialogState(() {});
                   },
                   decoration: InputDecoration(
-                    hintText: 'Retapez le numéro',
+                    hintText: context.tr('retype_number'),
                     filled: false,
                     counterText: '',
                     prefixText: '+225 ',
@@ -2191,7 +2199,7 @@ class _WalletScreenState extends State<WalletScreen>
                                     10 ||
                                 _editConfirmationController.text.trim() !=
                                     numero)
-                        ? 'Les numéros ne correspondent pas'
+                        ? context.tr('numbers_mismatch')
                         : null,
                   ),
                 ),
@@ -2207,6 +2215,7 @@ class _WalletScreenState extends State<WalletScreen>
                                 Navigator.pop(context);
                               },
                         style: OutlinedButton.styleFrom(
+                          overlayColor: Colors.transparent,
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(20),
@@ -2216,8 +2225,8 @@ class _WalletScreenState extends State<WalletScreen>
                           ),
                           elevation: 0,
                         ),
-                        child: const Text(
-                          'Annuler',
+                        child: Text(
+                          context.tr('cancel'),
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
@@ -2228,68 +2237,70 @@ class _WalletScreenState extends State<WalletScreen>
                     const SizedBox(width: 12),
                     Expanded(
                       child: ElevatedButton(
-                        onPressed:
-                            _editConfirmationController.text.trim() == numero &&
-                                    _editConfirmationController.text
-                                            .trim()
-                                            .length ==
-                                        10 &&
-                                    !_isUpdatingAccount
-                                ? () async {
-                                    setDialogState(() {
-                                      _isUpdatingAccount = true;
-                                    });
+                        onPressed: _editConfirmationController.text.trim() ==
+                                    numero &&
+                                _editConfirmationController.text
+                                        .trim()
+                                        .length ==
+                                    10 &&
+                                !_isUpdatingAccount
+                            ? () async {
+                                setDialogState(() {
+                                  _isUpdatingAccount = true;
+                                });
 
-                                    try {
-                                      await SupabaseService.updateCompte(
-                                        compteId: compteId,
-                                        numero: numero,
-                                        context: context,
-                                      );
+                                try {
+                                  await SupabaseService.updateCompte(
+                                    compteId: compteId,
+                                    numero: numero,
+                                    context: context,
+                                  );
 
-                                      // Fermer les modales
-                                      Navigator.pop(
-                                          context); // Fermer la modale de confirmation
-                                      Navigator.pop(
-                                          context); // Fermer la modale de modification
+                                  // Fermer les modales
+                                  Navigator.pop(
+                                      context); // Fermer la modale de confirmation
+                                  Navigator.pop(
+                                      context); // Fermer la modale de modification
 
-                                      // Attendre que les modales soient complètement fermées
-                                      await Future.delayed(
-                                          const Duration(milliseconds: 200));
+                                  // Attendre que les modales soient complètement fermées
+                                  await Future.delayed(
+                                      const Duration(milliseconds: 200));
 
-                                      // Recharger les comptes
+                                  // Recharger les comptes
+                                  if (mounted) {
+                                    await _loadComptes();
+                                    await _loadDefaultCompte();
+
+                                    // Forcer un rebuild
+                                    if (mounted) {
+                                      setState(() {});
+                                    }
+
+                                    WidgetsBinding.instance
+                                        .addPostFrameCallback((_) {
                                       if (mounted) {
-                                        await _loadComptes();
-                                        await _loadDefaultCompte();
-
-                                        // Forcer un rebuild
-                                        if (mounted) {
-                                          setState(() {});
-                                        }
-
-                                        WidgetsBinding.instance
-                                            .addPostFrameCallback((_) {
-                                          if (mounted) {
-                                            setState(() {});
-                                          }
-                                        });
+                                        setState(() {});
                                       }
-                                    } catch (e) {
-                                      if (mounted && context.mounted) {
-                                        setDialogState(() {
-                                          _isUpdatingAccount = false;
-                                        });
-                                        if (context.mounted) {
-                                          ToastService.showError(
-                                            context,
-                                            'Erreur: ${e.toString()}',
-                                          );
-                                        }
-                                      }
+                                    });
+                                  }
+                                } catch (e) {
+                                  if (mounted && context.mounted) {
+                                    setDialogState(() {
+                                      _isUpdatingAccount = false;
+                                    });
+                                    if (context.mounted) {
+                                      ToastService.showError(
+                                        context,
+                                        context.tr(
+                                            'error_x', {'error': e.toString()}),
+                                      );
                                     }
                                   }
-                                : null,
+                                }
+                              }
+                            : null,
                         style: ElevatedButton.styleFrom(
+                          overlayColor: Colors.transparent,
                           backgroundColor: AppColors.secondary,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 16),
@@ -2309,8 +2320,8 @@ class _WalletScreenState extends State<WalletScreen>
                                   ),
                                 ),
                               )
-                            : const Text(
-                                'Confirmer',
+                            : Text(
+                                context.tr('confirm'),
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w600,
@@ -2375,14 +2386,14 @@ class _WalletScreenState extends State<WalletScreen>
                 ),
                 // Titre
                 Text(
-                  'Confirmer la suppression',
+                  context.tr('confirm_delete'),
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'Êtes-vous sûr de vouloir supprimer ce compte ? Cette action est irréversible.',
+                  context.tr('delete_account_confirm'),
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: Colors.grey.shade600,
                       ),
@@ -2470,6 +2481,7 @@ class _WalletScreenState extends State<WalletScreen>
                                 Navigator.pop(context);
                               },
                         style: OutlinedButton.styleFrom(
+                          overlayColor: Colors.transparent,
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(20),
@@ -2479,8 +2491,8 @@ class _WalletScreenState extends State<WalletScreen>
                           ),
                           elevation: 0,
                         ),
-                        child: const Text(
-                          'Annuler',
+                        child: Text(
+                          context.tr('cancel'),
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
@@ -2563,6 +2575,7 @@ class _WalletScreenState extends State<WalletScreen>
                                 }
                               },
                         style: ElevatedButton.styleFrom(
+                          overlayColor: Colors.transparent,
                           backgroundColor: Theme.of(context).colorScheme.error,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 16),
@@ -2582,8 +2595,8 @@ class _WalletScreenState extends State<WalletScreen>
                                   ),
                                 ),
                               )
-                            : const Text(
-                                'Supprimer',
+                            : Text(
+                                context.tr('delete'),
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w600,

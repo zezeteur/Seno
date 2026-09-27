@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'providers/theme_provider.dart';
+import 'providers/locale_provider.dart';
 import 'theme/app_theme.dart';
 import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
@@ -31,19 +32,6 @@ void main() async {
     }
   }
 
-  // Initialiser Google Sign In avec les client IDs
-  final GoogleSignIn googleSignIn = GoogleSignIn.instance;
-  if (AppConfig.googleWebClientId.isNotEmpty &&
-      AppConfig.googleIosClientId.isNotEmpty) {
-    await googleSignIn.initialize(
-      clientId: AppConfig.googleIosClientId,
-      serverClientId: AppConfig.googleWebClientId,
-    );
-  } else {
-    // Initialisation sans client IDs (pour le développement)
-    await googleSignIn.initialize();
-  }
-
   runApp(const MyApp());
 }
 
@@ -52,16 +40,27 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => ThemeProvider(),
-      child: Consumer<ThemeProvider>(
-        builder: (context, themeProvider, _) {
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider(create: (_) => LocaleProvider()),
+      ],
+      child: Consumer2<ThemeProvider, LocaleProvider>(
+        builder: (context, themeProvider, localeProvider, _) {
           return MaterialApp(
             title: 'Seno',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightTheme,
             darkTheme: AppTheme.darkTheme,
             themeMode: themeProvider.themeMode,
+            locale: localeProvider.locale,
+            supportedLocales: LocaleProvider.supportedLocales,
+            localeResolutionCallback: LocaleProvider.resolve,
+            localizationsDelegates: const [
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
             home: const SplashScreen(),
             // Gérer les deep links OAuth
             onGenerateRoute: (settings) {

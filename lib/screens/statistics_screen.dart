@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../l10n/app_strings.dart';
 import 'package:hugeicons/hugeicons.dart';
 import '../theme/app_colors.dart';
 
@@ -10,7 +11,7 @@ class StatisticsScreen extends StatefulWidget {
 }
 
 class _StatisticsScreenState extends State<StatisticsScreen> {
-  String _selectedPeriod = 'Mois';
+  String _selectedPeriod = 'period_month';
 
   Widget _buildStatCard({
     required String title,
@@ -156,7 +157,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Dépenses hebdomadaires',
+            context.tr('weekly_spending'),
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.bold,
                   color: Theme.of(context).colorScheme.onSurface,
@@ -187,7 +188,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'][index],
+                      context.tr('weekdays_short').split(',')[index],
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: AppColors.textSecondary,
                             fontSize: 10,
@@ -227,15 +228,19 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'Statistiques',
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          context.tr('nav_stats'),
+                          style: Theme.of(context)
+                              .textTheme
+                              .headlineSmall
+                              ?.copyWith(
                                 color: Theme.of(context).colorScheme.onSurface,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 28,
                               ),
                         ),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 6),
                           decoration: BoxDecoration(
                             color: Theme.of(context).colorScheme.surface,
                             borderRadius: BorderRadius.circular(20),
@@ -247,13 +252,22 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                               Icons.arrow_drop_down,
                               color: Theme.of(context).colorScheme.onSurface,
                             ),
-                            items: ['Semaine', 'Mois', 'Année'].map((String period) {
+                            items: [
+                              'period_week',
+                              'period_month',
+                              'period_year'
+                            ].map((String period) {
                               return DropdownMenuItem<String>(
                                 value: period,
                                 child: Text(
-                                  period,
-                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                        color: Theme.of(context).colorScheme.onSurface,
+                                  context.tr(period),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.copyWith(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurface,
                                       ),
                                 ),
                               );
@@ -276,19 +290,19 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                     child: Row(
                       children: [
                         _buildStatCard(
-                          title: 'Revenus',
+                          title: context.tr('income'),
                           amount: '12 500 F',
                           color: AppColors.success,
                           icon: HugeIcons.strokeRoundedArrowDown01,
                         ),
                         _buildStatCard(
-                          title: 'Dépenses',
+                          title: context.tr('expenses'),
                           amount: '8 300 F',
                           color: Colors.red,
                           icon: HugeIcons.strokeRoundedArrowUp01,
                         ),
                         _buildStatCard(
-                          title: 'Solde',
+                          title: context.tr('balance'),
                           amount: '4 200 F',
                           color: AppColors.secondary,
                           icon: HugeIcons.strokeRoundedWallet01,
@@ -301,48 +315,52 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                   _buildChartCard(),
                   // Statistiques par catégorie
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Par catégorie',
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          context.tr('by_category'),
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(
                                 fontWeight: FontWeight.bold,
                                 color: Theme.of(context).colorScheme.onSurface,
                               ),
                         ),
                         const SizedBox(height: 12),
                         _buildCategoryStat(
-                          category: 'Restaurant',
+                          category: context.tr('cat_restaurant'),
                           amount: '2 500 F',
                           percentage: 0.6,
                           color: Colors.orange,
                           icon: HugeIcons.strokeRoundedRestaurant01,
                         ),
                         _buildCategoryStat(
-                          category: 'Shopping',
+                          category: context.tr('cat_shopping'),
                           amount: '1 800 F',
                           percentage: 0.45,
                           color: Colors.pink,
                           icon: HugeIcons.strokeRoundedShoppingBag01,
                         ),
                         _buildCategoryStat(
-                          category: 'Transport',
+                          category: context.tr('cat_transport'),
                           amount: '1 200 F',
                           percentage: 0.3,
                           color: Colors.blue,
                           icon: HugeIcons.strokeRoundedCar01,
                         ),
                         _buildCategoryStat(
-                          category: 'Divertissement',
+                          category: context.tr('cat_entertainment'),
                           amount: '1 500 F',
                           percentage: 0.38,
                           color: Colors.purple,
                           icon: HugeIcons.strokeRoundedPlay,
                         ),
                         _buildCategoryStat(
-                          category: 'Autres',
+                          category: context.tr('cat_other'),
                           amount: '1 300 F',
                           percentage: 0.32,
                           color: Colors.grey,
@@ -362,4 +380,3 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     );
   }
 }
-
