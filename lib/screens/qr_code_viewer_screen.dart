@@ -2,14 +2,19 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import '../l10n/app_strings.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 import 'package:hugeicons/hugeicons.dart';
+import '../services/supabase_service.dart';
 import '../theme/app_colors.dart';
+import '../utils/auth_errors.dart';
+import '../utils/toast_service.dart';
+import '../widgets/app_bottom_sheet.dart';
+import '../widgets/dynamic_qr.dart';
 
 class QRCodeViewerScreen extends StatefulWidget {
-  final String qrData;
+  /// Scanner seul : pas d'onglet « Recevoir » ni de sélecteur (depuis l'envoi)
+  final bool scanOnly;
 
-  const QRCodeViewerScreen({super.key, required this.qrData});
+  const QRCodeViewerScreen({super.key, this.scanOnly = false});
 
   @override
   State<QRCodeViewerScreen> createState() => _QRCodeViewerScreenState();
@@ -24,6 +29,7 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
   late Animation<double> _flipAnimation;
   bool _isFlipped = false;
   bool _torchEnabled = false;
+  bool _handlingScan = false;
   final Random _random = Random();
   late List<IconPosition> _iconPositions;
 
@@ -229,55 +235,59 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
               onPageChanged: (index) {
                 _tabController.animateTo(index);
               },
+              physics:
+                  widget.scanOnly ? const NeverScrollableScrollPhysics() : null,
               children: [
                 // Page 1 - QR Code
                 _buildQRCodePage(),
                 // Page 2 - Informations
-                _buildInfoPage(),
+                if (!widget.scanOnly) _buildInfoPage(),
               ],
             ),
           ),
+          if (widget.scanOnly) SizedBox(height: 40 + bottomPadding),
           // TabBar en bas
-          Container(
-            margin: EdgeInsets.fromLTRB(20, 20, 20, 40 + bottomPadding),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              borderRadius: BorderRadius.circular(50),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(50),
-              child: TabBar(
-                controller: _tabController,
-                indicatorSize: TabBarIndicatorSize.tab,
-                indicator: BoxDecoration(
-                  color: AppColors.secondary,
-                  borderRadius: BorderRadius.circular(50),
+          if (!widget.scanOnly)
+            Container(
+              margin: EdgeInsets.fromLTRB(20, 20, 20, 40 + bottomPadding),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                borderRadius: BorderRadius.circular(50),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(50),
+                child: TabBar(
+                  controller: _tabController,
+                  indicatorSize: TabBarIndicatorSize.tab,
+                  indicator: BoxDecoration(
+                    color: AppColors.secondary,
+                    borderRadius: BorderRadius.circular(50),
+                  ),
+                  dividerColor: Colors.transparent,
+                  labelColor: Colors.white,
+                  unselectedLabelColor: Theme.of(context).colorScheme.onSurface,
+                  labelStyle: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  unselectedLabelStyle: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  tabs: [
+                    Tab(text: context.tr('send')),
+                    Tab(text: context.tr('receive')),
+                  ],
+                  onTap: (index) {
+                    _pageController.animateToPage(
+                      index,
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeInOut,
+                    );
+                  },
                 ),
-                dividerColor: Colors.transparent,
-                labelColor: Colors.white,
-                unselectedLabelColor: Theme.of(context).colorScheme.onSurface,
-                labelStyle: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-                unselectedLabelStyle: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-                tabs: [
-                  Tab(text: context.tr('send')),
-                  Tab(text: context.tr('receive')),
-                ],
-                onTap: (index) {
-                  _pageController.animateToPage(
-                    index,
-                    duration: const Duration(milliseconds: 300),
-                    curve: Curves.easeInOut,
-                  );
-                },
               ),
             ),
-          ),
         ],
       ),
     );
@@ -302,21 +312,11 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
                 MobileScanner(
                   controller: _cameraController,
                   onDetect: (capture) {
-                    final List<Barcode> barcodes = capture.barcodes;
-                    for (final barcode in barcodes) {
-                      if (barcode.rawValue != null) {
-                        // QR code détecté
-                        _cameraController.stop();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              context.tr('qr_scanned',
-                                  {'value': '${barcode.rawValue}'}),
-                            ),
-                          ),
-                        );
-                      }
-                    }
+                    final value = capture.barcodes
+                        .map((b) => b.rawValue)
+                        .whereType<String>()
+                        .firstOrNull;
+                    if (value != null) _onScanned(value);
                   },
                 ),
                 // Overlay avec cadre de scan
@@ -361,7 +361,9 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
     );
   }
 
-  Widget _buildInfoPage() {
+  Widget _buildInfoPage() => _buildFlipCard();
+
+  Widget _buildFlipCard() {
     return Center(
       child: GestureDetector(
         onTap: () {
@@ -400,6 +402,101 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
     );
   }
 
+  /// QR scanné : résolution côté serveur puis fiche du destinataire
+  Future<void> _onScanned(String value) async {
+    if (_handlingScan) return;
+    _handlingScan = true;
+    await _cameraController.stop();
+    try {
+      final payee = await SupabaseService.resolveQr(value);
+      if (!mounted) return;
+      if (payee.isSelf) {
+        ToastService.showInfo(context, context.tr('qr_self'));
+      } else {
+        await _showPayeeSheet(payee);
+      }
+    } catch (e) {
+      if (mounted)
+        ToastService.showError(context, authErrorMessage(context, e));
+      // Évite de re-scanner le même QR invalide en boucle
+      await Future.delayed(const Duration(seconds: 2));
+    } finally {
+      _handlingScan = false;
+      if (mounted) await _cameraController.start();
+    }
+  }
+
+  Future<void> _showPayeeSheet(QrPayee payee) {
+    final textTheme = Theme.of(context).textTheme;
+    final initial =
+        payee.prenom.isNotEmpty ? payee.prenom[0].toUpperCase() : '?';
+    return showAppBottomSheet<void>(
+      context: context,
+      title: context.tr('qr_pay_to'),
+      builder: (sheetContext) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: CircleAvatar(
+              radius: 36,
+              backgroundColor: Colors.black,
+              foregroundImage: payee.avatarUrl != null
+                  ? NetworkImage(payee.avatarUrl!)
+                  : null,
+              child: Text(
+                initial,
+                style: textTheme.headlineSmall?.copyWith(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            payee.prenom,
+            textAlign: TextAlign.center,
+            style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          Text(
+            '@${payee.pseudo}',
+            textAlign: TextAlign.center,
+            style:
+                textTheme.bodyMedium?.copyWith(color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            payee.numeroMasque == null
+                ? context.tr('qr_no_default_account')
+                : '${payee.reseau} · +225 ${payee.numeroMasque}',
+            textAlign: TextAlign.center,
+            style: textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 24),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.black,
+              foregroundColor: Colors.white,
+              minimumSize: const Size.fromHeight(52),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            onPressed: payee.numeroMasque == null
+                ? null
+                : () {
+                    // L'envoi utilisera payee.payeeRef (référence chiffrée)
+                    Navigator.of(sheetContext).pop();
+                    ToastService.showInfo(
+                        context, context.tr('send_coming_soon'));
+                  },
+            child: Text(context.tr('send')),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildFlipCardFront() {
     return Container(
       key: const ValueKey('front'),
@@ -414,29 +511,14 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            // Marge blanche autour du QR : coins arrondis sans rogner les repères
             Container(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(24),
               ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: QrImageView(
-                  data: widget.qrData,
-                  version: QrVersions.auto,
-                  size: 184,
-                  backgroundColor: Colors.white,
-                  eyeStyle: const QrEyeStyle(
-                    eyeShape: QrEyeShape.circle,
-                    color: Colors.black,
-                  ),
-                  dataModuleStyle: const QrDataModuleStyle(
-                    dataModuleShape: QrDataModuleShape.circle,
-                    color: Colors.black,
-                  ),
-                ),
-              ),
+              child: const DynamicQrCode(size: 200),
             ),
           ],
         ),

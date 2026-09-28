@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Face ID permet de déverrouiller Seno rapidement et en toute sécurité.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
@@ -42,7 +44,9 @@
 	<true/>
 	<!-- Permissions caméra pour scanner les QR codes -->
 	<key>NSCameraUsageDescription</key>
-	<string>Cette application a besoin d'accéder à la caméra pour scanner les QR codes.</string>
+	<string>Cette application a besoin d'accéder à la caméra pour scanner les QR codes et prendre votre photo de profil.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Cette application a besoin d'accéder à vos photos pour choisir votre photo de profil.</string>
 	<!-- Deep links pour OAuth callback et Google Sign-In -->
 	<key>CFBundleURLTypes</key>
 	<array>

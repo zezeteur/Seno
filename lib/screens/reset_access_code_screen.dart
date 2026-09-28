@@ -218,6 +218,9 @@ class _ResetAccessCodeScreenState extends State<ResetAccessCodeScreen> {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    // viewPadding plutôt que SafeArea : sous le navigateur du verrou,
+    // le padding de la barre d'état peut déjà être consommé
+    final viewPadding = MediaQuery.of(context).viewPadding;
 
     final (title, subtitle) = switch (_step) {
       _Step.birthDate => (
@@ -245,53 +248,50 @@ class _ResetAccessCodeScreenState extends State<ResetAccessCodeScreen> {
       },
       child: Scaffold(
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        body: SafeArea(
-          bottom: false,
-          child: Stack(
-            children: [
-              Positioned(
-                top: 8,
-                left: 8,
-                child: IconButton(
-                  icon: HugeIcon(
-                    icon: HugeIcons.strokeRoundedArrowLeft01,
-                    color: textTheme.bodyLarge?.color ?? Colors.black,
+        body: Stack(
+          children: [
+            Positioned(
+              top: viewPadding.top + 8,
+              left: 8,
+              child: IconButton(
+                icon: HugeIcon(
+                  icon: HugeIcons.strokeRoundedArrowLeft01,
+                  color: textTheme.bodyLarge?.color ?? Colors.black,
+                ),
+                onPressed: _isLoading ? null : _onBack,
+              ),
+            ),
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                24,
+                viewPadding.top + 72,
+                24,
+                viewPadding.bottom + 32,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    title,
+                    style: textTheme.headlineLarge
+                        ?.copyWith(fontWeight: FontWeight.bold),
                   ),
-                  onPressed: _isLoading ? null : _onBack,
-                ),
+                  const SizedBox(height: 8),
+                  Text(
+                    subtitle,
+                    style: textTheme.bodyLarge
+                        ?.copyWith(color: AppColors.textSecondary),
+                  ),
+                  const SizedBox(height: 40),
+                  Expanded(
+                    child: _step == _Step.birthDate
+                        ? _buildBirthDateStep(textTheme)
+                        : _buildPinStep(textTheme),
+                  ),
+                ],
               ),
-              Padding(
-                padding: EdgeInsets.fromLTRB(
-                  24,
-                  72,
-                  24,
-                  MediaQuery.of(context).viewPadding.bottom + 32,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      title,
-                      style: textTheme.headlineLarge
-                          ?.copyWith(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      subtitle,
-                      style: textTheme.bodyLarge
-                          ?.copyWith(color: AppColors.textSecondary),
-                    ),
-                    const SizedBox(height: 40),
-                    Expanded(
-                      child: _step == _Step.birthDate
-                          ? _buildBirthDateStep(textTheme)
-                          : _buildPinStep(textTheme),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

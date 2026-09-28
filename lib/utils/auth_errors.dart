@@ -24,6 +24,12 @@ String authErrorMessage(BuildContext context, Object e) {
         });
       case 'birth_date_invalid':
         return context.tr('birth_date_wrong', {'count': '${e.remaining ?? 0}'});
+      case 'qr_invalid':
+        return context.tr('qr_invalid');
+      case 'qr_expired':
+        return context.tr('qr_expired');
+      case 'compte_exists':
+        return context.tr('compte_exists');
       case 'blocked':
         return context.tr('access_code_blocked');
       case 'unauthorized':

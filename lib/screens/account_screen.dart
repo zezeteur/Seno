@@ -4,13 +4,16 @@ import '../widgets/app_bottom_sheet.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:lottie/lottie.dart';
+import '../services/supabase_service.dart';
 import '../theme/app_colors.dart';
 import '../utils/toast_service.dart';
+import '../widgets/user_avatar.dart';
 import 'login_screen.dart';
 import 'settings_screen.dart';
 import 'security_screen.dart';
 import 'notifications_screen.dart';
 import 'help_support_screen.dart';
+import 'profile_screen.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key});
@@ -23,33 +26,47 @@ class _AccountScreenState extends State<AccountScreen> {
   final supabase = Supabase.instance.client;
   final _lottieKey = UniqueKey();
 
-  String _getUserName() {
-    final user = supabase.auth.currentUser;
-    if (user != null) {
-      final fullName = user.userMetadata?['full_name'] as String?;
-      if (fullName != null && fullName.isNotEmpty) {
-        return fullName;
-      }
-      final name = user.userMetadata?['name'] as String?;
-      if (name != null && name.isNotEmpty) {
-        return name;
-      }
-      if (user.email != null && user.email!.isNotEmpty) {
-        final emailParts = user.email!.split('@');
-        return emailParts[0];
-      }
+  String? _pseudo;
+  String? _nom;
+  String? _prenoms;
+  String? _avatarUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+    SupabaseService.profileRevision.addListener(_loadProfile);
+  }
+
+  @override
+  void dispose() {
+    SupabaseService.profileRevision.removeListener(_loadProfile);
+    super.dispose();
+  }
+
+  /// Profil (table profiles, mis en cache) : photo, prénoms, pseudo
+  Future<void> _loadProfile() async {
+    try {
+      final profile = await SupabaseService.getLockProfile();
+      if (!mounted) return;
+      setState(() {
+        _pseudo = profile.pseudo;
+        _nom = profile.nom;
+        _prenoms = profile.prenoms;
+        _avatarUrl = profile.avatarUrl;
+      });
+    } catch (_) {
+      // Hors ligne sans cache : libellé par défaut
     }
-    return context.tr('user');
   }
 
-  String _getUserEmail() {
-    final user = supabase.auth.currentUser;
-    return user?.email ?? '';
-  }
-
-  String _getUserAvatarUrl() {
-    final user = supabase.auth.currentUser;
-    return user?.userMetadata?['avatar_url'] as String? ?? '';
+  String _getUserName() {
+    // « Nom Prénoms », avec ce qui est renseigné
+    final name = [_nom, _prenoms]
+        .map((v) => v?.trim() ?? '')
+        .where((v) => v.isNotEmpty)
+        .join(' ');
+    return name.isNotEmpty ? name : context.tr('user');
   }
 
   Future<void> _handleSignOut() async {
@@ -81,76 +98,61 @@ class _AccountScreenState extends State<AccountScreen> {
 
   Widget _buildProfileSection() {
     final userName = _getUserName();
-    final userEmail = _getUserEmail();
-    final avatarUrl = _getUserAvatarUrl();
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(24),
       ),
-      child: Row(
-        children: [
-          // Avatar
-          Container(
-            width: 64,
-            height: 64,
-            decoration: BoxDecoration(
-              color: AppColors.primary,
-              shape: BoxShape.circle,
-            ),
-            child: avatarUrl.isNotEmpty
-                ? ClipOval(
-                    child: Image.network(
-                      avatarUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) =>
-                          _buildAvatarInitials(userName),
-                    ),
-                  )
-                : _buildAvatarInitials(userName),
-          ),
-          const SizedBox(width: 16),
-          // Nom et email
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(24),
+          onTap: () async {
+            await Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ProfileScreen()),
+            );
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
               children: [
-                Text(
-                  userName,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.onSurface,
-                      ),
+                UserAvatar(
+                  pseudo: _pseudo ?? _prenoms,
+                  avatarUrl: _avatarUrl,
+                  radius: 32,
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  userEmail,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AppColors.textSecondary,
+                const SizedBox(width: 16),
+                // Nom et email
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        userName,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: Theme.of(context).colorScheme.onSurface,
+                            ),
                       ),
+                      if (_pseudo?.isNotEmpty ?? false) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          '@$_pseudo',
+                          style:
+                              Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: AppColors.textSecondary,
+                                  ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
+                Icon(Icons.chevron_right, color: AppColors.textSecondary),
               ],
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAvatarInitials(String name) {
-    final initials = name.isNotEmpty
-        ? name.split(' ').map((n) => n[0]).take(2).join().toUpperCase()
-        : 'U';
-    return Center(
-      child: Text(
-        initials,
-        style: TextStyle(
-          fontSize: 24,
-          fontWeight: FontWeight.bold,
-          color: AppColors.textOnPrimary,
         ),
       ),
     );

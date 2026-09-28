@@ -1,3 +1,4 @@
+import 'services/cache_store.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -20,6 +21,9 @@ void main() async {
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
+
+  // Cache local chiffré (données affichées hors ligne)
+  await CacheStore.init();
 
   // Initialiser Supabase
   if (AppConfig.isSupabaseConfigured()) {

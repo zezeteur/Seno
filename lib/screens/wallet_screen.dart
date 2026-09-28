@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../l10n/app_strings.dart';
 import 'package:flutter/services.dart';
@@ -7,6 +9,8 @@ import '../models/reseau.dart';
 import '../models/compte.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_colors.dart';
+import '../utils/auth_errors.dart';
+import '../utils/pair_digits_formatter.dart';
 import '../utils/toast_service.dart';
 import 'home_screen.dart';
 
@@ -36,6 +40,12 @@ class _WalletScreenState extends State<WalletScreen>
   final TextEditingController _confirmationController = TextEditingController();
   // Contrôleurs pour le formulaire de modification
   final TextEditingController _editNumeroController = TextEditingController();
+
+  // Ajout de compte : vérification du numéro par SMS
+  String? _compteOtpToken;
+  bool _compteOtpSending = false;
+  int _compteOtpSeconds = 0;
+  Timer? _compteOtpTimer;
   final TextEditingController _editConfirmationController =
       TextEditingController();
   Reseau? _selectedReseau;
@@ -65,8 +75,16 @@ class _WalletScreenState extends State<WalletScreen>
     super.didChangeDependencies();
   }
 
+  /// Cartes empilées (état par défaut) ; appelé aussi au retour sur l'onglet
+  void collapseCards() {
+    if (!_isExpanded && _animationController.value == 0) return;
+    setState(() => _isExpanded = false);
+    _animationController.value = 0;
+  }
+
   // Méthode publique pour recharger les comptes depuis l'extérieur
   Future<void> reloadComptes() async {
+    collapseCards();
     await _loadComptes();
     await _loadDefaultCompte();
   }
@@ -83,7 +101,10 @@ class _WalletScreenState extends State<WalletScreen>
       if (mounted) {
         setState(() {
           _comptes = comptes;
+          // Nouvelle liste : on repart des cartes empilées
+          _isExpanded = false;
         });
+        _animationController.value = 0;
       }
     } catch (e) {
       // Erreur silencieuse pour les comptes, on continue avec les réseaux
@@ -109,6 +130,7 @@ class _WalletScreenState extends State<WalletScreen>
     _numeroController.dispose();
     _confirmationController.dispose();
     _editNumeroController.dispose();
+    _compteOtpTimer?.cancel();
     _editConfirmationController.dispose();
     super.dispose();
   }
@@ -268,7 +290,7 @@ class _WalletScreenState extends State<WalletScreen>
           child: GestureDetector(
             onLongPress: () {
               HapticFeedback.mediumImpact();
-              _showCardModal(context, reseau, phoneNumber, index);
+              _showCardModal(context, reseau, phoneNumber, index, compteId);
             },
             child: Hero(
               tag: 'card_$index',
@@ -612,9 +634,8 @@ class _WalletScreenState extends State<WalletScreen>
     Reseau reseau,
     String phoneNumber,
     int index,
+    String? compteId,
   ) {
-    // Obtenir le compteId depuis la liste des comptes
-    final compteId = index < _comptes.length ? _comptes[index].id : null;
     // Vérifier si ce compte est le compte par défaut en comparant les IDs
     final isDefault = compteId != null &&
         _defaultCompteId != null &&
@@ -877,22 +898,35 @@ class _WalletScreenState extends State<WalletScreen>
                                           horizontal: 20),
                                       height: animatedHeight,
                                       child: Stack(
-                                        children: List.generate(
-                                          _comptes.length,
-                                          (index) {
-                                            final compte = _comptes[index];
-                                            final reseau = _reseaux.firstWhere(
-                                              (r) => r.id == compte.idReseau,
-                                              orElse: () => _reseaux.first,
-                                            );
-                                            return _buildMobileMoneyAccount(
-                                              reseau: reseau,
-                                              phoneNumber: compte.numero,
-                                              index: index,
-                                              compteId: compte.id,
-                                            );
-                                          },
-                                        ),
+                                        children: () {
+                                          // Compte par défaut en premier (en haut quand déplié)
+                                          final ordered = [
+                                            ..._comptes.where((c) =>
+                                                c.id == _defaultCompteId),
+                                            ..._comptes.where((c) =>
+                                                c.id != _defaultCompteId),
+                                          ];
+                                          final cards = List.generate(
+                                            ordered.length,
+                                            (index) {
+                                              final compte = ordered[index];
+                                              final reseau =
+                                                  _reseaux.firstWhere(
+                                                (r) => r.id == compte.idReseau,
+                                                orElse: () => _reseaux.first,
+                                              );
+                                              return _buildMobileMoneyAccount(
+                                                reseau: reseau,
+                                                phoneNumber: compte.numero,
+                                                index: index,
+                                                compteId: compte.id,
+                                              );
+                                            },
+                                          );
+                                          // Peinte en dernier = au-dessus de la pile :
+                                          // la carte par défaut recouvre les autres
+                                          return cards.reversed.toList();
+                                        }(),
                                       ),
                                     );
                                   },
@@ -1283,7 +1317,9 @@ class _WalletScreenState extends State<WalletScreen>
                       controller: _numeroController,
                       keyboardType: TextInputType.phone,
                       autofocus: true,
-                      maxLength: 10,
+                      // « 07 01 02 03 04 » : 10 chiffres groupés 2 par 2
+                      inputFormatters: [PairDigitsFormatter(maxDigits: 10)],
+                      style: _numeroStyle,
                       onChanged: (value) {
                         setModalState(() {});
                       },
@@ -1322,9 +1358,10 @@ class _WalletScreenState extends State<WalletScreen>
                           ),
                         ),
                         prefixText: '+225 ',
+                        prefixStyle: _numeroStyle,
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 16,
-                          vertical: 16,
+                          vertical: 18,
                         ),
                         errorText: _getValidationError(),
                       ),
@@ -1343,7 +1380,7 @@ class _WalletScreenState extends State<WalletScreen>
                                   context,
                                   setModalState,
                                   _selectedReseau!,
-                                  _numeroController.text.trim(),
+                                  _numeroDigits,
                                   isFirstAccount,
                                 );
                               },
@@ -1377,12 +1414,21 @@ class _WalletScreenState extends State<WalletScreen>
     );
   }
 
+  /// Numéro saisi sans les espaces d'affichage
+  String get _numeroDigits => _numeroController.text.replaceAll(' ', '');
+
+  static const _numeroStyle = TextStyle(
+    fontSize: 22,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 0.5,
+  );
+
   String? _getValidationError() {
     if (_selectedReseau == null || _numeroController.text.isEmpty) {
       return null;
     }
 
-    final numero = _numeroController.text.trim();
+    final numero = _numeroDigits;
 
     // Vérifier la longueur minimale
     if (numero.length < 10) {
@@ -1426,6 +1472,8 @@ class _WalletScreenState extends State<WalletScreen>
   ) {
     _confirmationController.clear();
     _isAddingAccount = false;
+    _compteOtpToken = null;
+    var otpRequested = false;
 
     showModalBottomSheet(
       context: context,
@@ -1433,344 +1481,420 @@ class _WalletScreenState extends State<WalletScreen>
       isScrollControlled: true,
       builder: (context) => SafeArea(
         child: StatefulBuilder(
-          builder: (context, setDialogState) => Container(
-            decoration: BoxDecoration(
-              color: Theme.of(context).scaffoldBackgroundColor,
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(24),
-                topRight: Radius.circular(24),
+          builder: (context, setDialogState) {
+            // SMS envoyé une seule fois, à l'ouverture de la modale
+            if (!otpRequested) {
+              otpRequested = true;
+              WidgetsBinding.instance.addPostFrameCallback((_) =>
+                  _sendCompteOtp(context, setDialogState, reseau, numero));
+            }
+            return Container(
+              decoration: BoxDecoration(
+                color: Theme.of(context).scaffoldBackgroundColor,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(24),
+                  topRight: Radius.circular(24),
+                ),
               ),
-            ),
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(context).viewInsets.bottom,
-              left: 24,
-              right: 24,
-              top: 24,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Handle bar
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 24),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(2),
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+                left: 24,
+                right: 24,
+                top: 24,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Handle bar
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 24),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
                   ),
-                ),
-                // Titre
-                Text(
-                  context.tr('confirm_number'),
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                ),
-                const SizedBox(height: 24),
-                // Réseau
-                Row(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.network(
-                        reseau.logo,
-                        width: 40,
-                        height: 24,
-                        fit: BoxFit.contain,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            width: 40,
-                            height: 24,
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade200,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Center(
-                              child: Text(
-                                reseau.abreviation,
-                                style: const TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
+                  // Titre
+                  Text(
+                    context.tr('confirm_number'),
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                  const SizedBox(height: 24),
+                  // Réseau
+                  Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          reseau.logo,
+                          width: 40,
+                          height: 24,
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              width: 40,
+                              height: 24,
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade200,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  reseau.abreviation,
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      reseau.nom,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
+                      const SizedBox(width: 12),
+                      Text(
+                        reseau.nom,
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  _buildCompteOtpSection(
+                    context,
+                    setDialogState,
+                    reseau,
+                    numero,
+                    _confirmationController,
+                  ),
+                  if (isFirstAccount) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.secondary.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.star_rounded,
+                            color: AppColors.secondary,
+                            size: 20,
                           ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              context.tr('will_be_default'),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color: AppColors.secondary,
+                                  ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  context.tr('retype_to_confirm'),
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _confirmationController,
-                  keyboardType: TextInputType.phone,
-                  autofocus: true,
-                  maxLength: 10,
-                  onChanged: (value) {
-                    setDialogState(() {});
-                  },
-                  decoration: InputDecoration(
-                    hintText: context.tr('enter_the_number'),
-                    filled: false,
-                    counterText: '',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
-                      borderSide: BorderSide(
-                        color: Colors.grey.shade300,
-                      ),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
-                      borderSide: BorderSide(
-                        color: AppColors.secondary,
-                        width: 2,
-                      ),
-                    ),
-                    errorBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
-                      borderSide: BorderSide(
-                        color: Colors.red,
-                        width: 2,
-                      ),
-                    ),
-                    focusedErrorBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
-                      borderSide: BorderSide(
-                        color: Colors.red,
-                        width: 2,
-                      ),
-                    ),
-                    prefixText: '+225 ',
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 16,
-                    ),
-                    errorText: _confirmationController.text.isNotEmpty &&
-                            _confirmationController.text != numero
-                        ? context.tr('numbers_mismatch')
-                        : null,
-                  ),
-                ),
-                if (isFirstAccount) ...[
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppColors.secondary.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.star_rounded,
-                          color: AppColors.secondary,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            context.tr('will_be_default'),
-                            style:
-                                Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: AppColors.secondary,
-                                    ),
+                  const SizedBox(height: 32),
+                  // Boutons
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextButton(
+                          onPressed: () {
+                            _confirmationController.clear();
+                            Navigator.pop(context);
+                          },
+                          style: TextButton.styleFrom(
+                            overlayColor: Colors.transparent,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
+                              side: BorderSide(
+                                color: Colors.grey.shade300,
+                              ),
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 32),
-                // Boutons
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextButton(
-                        onPressed: () {
-                          _confirmationController.clear();
-                          Navigator.pop(context);
-                        },
-                        style: TextButton.styleFrom(
-                          overlayColor: Colors.transparent,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20),
-                            side: BorderSide(
-                              color: Colors.grey.shade300,
+                          child: Text(
+                            context.tr('cancel'),
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ),
-                        child: Text(
-                          context.tr('cancel'),
-                          style: TextStyle(
-                            color: Colors.grey.shade600,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: (_confirmationController.text == numero &&
-                                _confirmationController.text.length == 10 &&
-                                !_isAddingAccount)
-                            ? () async {
-                                setDialogState(() {
-                                  _isAddingAccount = true;
-                                });
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: (_compteOtpToken != null &&
+                                  _confirmationController.text.length == 4 &&
+                                  !_isAddingAccount)
+                              ? () async {
+                                  setDialogState(() {
+                                    _isAddingAccount = true;
+                                  });
 
-                                try {
-                                  // Créer le compte
-                                  await SupabaseService.createCompte(
-                                    numero: numero,
-                                    idReseau: reseau.id,
-                                    setAsDefault: isFirstAccount,
-                                  );
+                                  try {
+                                    // Créer le compte
+                                    await SupabaseService.createCompte(
+                                      verificationToken: _compteOtpToken!,
+                                      otp: _confirmationController.text,
+                                      setAsDefault: isFirstAccount,
+                                    );
+                                    _compteOtpTimer?.cancel();
 
-                                  if (mounted && context.mounted) {
-                                    // Si c'était le premier compte, rediriger vers HomeScreen pour afficher la navbar
-                                    if (isFirstAccount) {
+                                    if (mounted && context.mounted) {
+                                      // Si c'était le premier compte, rediriger vers HomeScreen pour afficher la navbar
+                                      if (isFirstAccount) {
+                                        // Fermer les modales d'abord
+                                        Navigator.pop(
+                                            context); // Fermer la modale de confirmation
+                                        Navigator.pop(
+                                            context); // Fermer la modale d'ajout
+
+                                        // Attendre un peu pour que les modales se ferment complètement
+                                        await Future.delayed(
+                                            const Duration(milliseconds: 200));
+
+                                        if (mounted && context.mounted) {
+                                          Navigator.of(context)
+                                              .pushAndRemoveUntil(
+                                            MaterialPageRoute(
+                                              builder: (_) => const HomeScreen(
+                                                  initialIndex: 1),
+                                            ),
+                                            (route) => false,
+                                          );
+                                          return; // Sortir pour éviter de continuer
+                                        }
+                                      }
+
                                       // Fermer les modales d'abord
                                       Navigator.pop(
                                           context); // Fermer la modale de confirmation
                                       Navigator.pop(
                                           context); // Fermer la modale d'ajout
 
-                                      // Attendre un peu pour que les modales se ferment complètement
+                                      // Attendre que les modales soient complètement fermées
                                       await Future.delayed(
                                           const Duration(milliseconds: 200));
 
-                                      if (mounted && context.mounted) {
-                                        Navigator.of(context)
-                                            .pushAndRemoveUntil(
-                                          MaterialPageRoute(
-                                            builder: (_) => const HomeScreen(
-                                                initialIndex: 1),
-                                          ),
-                                          (route) => false,
-                                        );
-                                        return; // Sortir pour éviter de continuer
-                                      }
-                                    }
+                                      // Attendre un peu pour que la base de données se mette à jour
+                                      await Future.delayed(
+                                          const Duration(milliseconds: 500));
 
-                                    // Fermer les modales d'abord
-                                    Navigator.pop(
-                                        context); // Fermer la modale de confirmation
-                                    Navigator.pop(
-                                        context); // Fermer la modale d'ajout
-
-                                    // Attendre que les modales soient complètement fermées
-                                    await Future.delayed(
-                                        const Duration(milliseconds: 200));
-
-                                    // Attendre un peu pour que la base de données se mette à jour
-                                    await Future.delayed(
-                                        const Duration(milliseconds: 500));
-
-                                    // Recharger les comptes
-                                    if (mounted) {
-                                      await _loadComptes();
-
-                                      // Forcer un rebuild immédiat
+                                      // Recharger les comptes
                                       if (mounted) {
-                                        setState(() {});
-                                      }
+                                        await _loadComptes();
 
-                                      // Utiliser addPostFrameCallback pour s'assurer que le setState est appelé après le frame
-                                      WidgetsBinding.instance
-                                          .addPostFrameCallback((_) {
+                                        // Forcer un rebuild immédiat
                                         if (mounted) {
                                           setState(() {});
                                         }
-                                      });
 
-                                      // Afficher le message de succès
-                                      if (mounted && context.mounted) {
-                                        ToastService.showInfo(
+                                        // Utiliser addPostFrameCallback pour s'assurer que le setState est appelé après le frame
+                                        WidgetsBinding.instance
+                                            .addPostFrameCallback((_) {
+                                          if (mounted) {
+                                            setState(() {});
+                                          }
+                                        });
+
+                                        // Afficher le message de succès
+                                        if (mounted && context.mounted) {
+                                          ToastService.showInfo(
+                                            context,
+                                            context.tr('account_added'),
+                                          );
+                                        }
+                                      }
+                                    }
+                                  } catch (e) {
+                                    if (mounted && context.mounted) {
+                                      setDialogState(() {
+                                        _isAddingAccount = false;
+                                        _confirmationController.clear();
+                                      });
+                                      if (context.mounted) {
+                                        ToastService.showError(
                                           context,
-                                          context.tr('account_added'),
+                                          authErrorMessage(context, e),
                                         );
                                       }
                                     }
                                   }
-                                } catch (e) {
-                                  if (mounted && context.mounted) {
-                                    setDialogState(() {
-                                      _isAddingAccount = false;
-                                    });
-                                    if (context.mounted) {
-                                      ToastService.showError(
-                                        context,
-                                        context.tr(
-                                            'error_x', {'error': e.toString()}),
-                                      );
-                                    }
-                                  }
                                 }
-                              }
-                            : null,
-                        style: ElevatedButton.styleFrom(
-                          overlayColor: Colors.transparent,
-                          backgroundColor: AppColors.secondary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20),
+                              : null,
+                          style: ElevatedButton.styleFrom(
+                            overlayColor: Colors.transparent,
+                            backgroundColor: AppColors.secondary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            elevation: 0,
                           ),
-                          elevation: 0,
-                        ),
-                        child: _isAddingAccount
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    Colors.white,
+                          child: _isAddingAccount
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white,
+                                    ),
+                                  ),
+                                )
+                              : Text(
+                                  context.tr('confirm'),
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                              )
-                            : Text(
-                                context.tr('confirm'),
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 32),
-              ],
+                    ],
+                  ),
+                  const SizedBox(height: 32),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    ).whenComplete(() => _compteOtpTimer?.cancel());
+  }
+
+  /// Code SMS envoyé au numéro (ajout ou modification) + bouton de renvoi
+  Widget _buildCompteOtpSection(
+    BuildContext context,
+    StateSetter setDialogState,
+    Reseau reseau,
+    String numero,
+    TextEditingController controller, {
+    String? compteId,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          context.tr('compte_otp_title'),
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          context.tr('compte_otp_subtitle',
+              {'phone': PairDigitsFormatter.group(numero)}),
+          style: Theme.of(context)
+              .textTheme
+              .bodyMedium
+              ?.copyWith(color: AppColors.textSecondary),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          autofocus: true,
+          maxLength: 4,
+          textAlign: TextAlign.center,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          style: const TextStyle(
+            fontSize: 28,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 16,
+          ),
+          onChanged: (_) => setDialogState(() {}),
+          decoration: InputDecoration(
+            hintText: '••••',
+            filled: false,
+            counterText: '',
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(20),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(20),
+              borderSide: BorderSide(color: AppColors.secondary, width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(vertical: 16),
+          ),
+        ),
+        Center(
+          child: TextButton(
+            onPressed: _compteOtpSeconds > 0 || _compteOtpSending
+                ? null
+                : () => _sendCompteOtp(context, setDialogState, reseau, numero,
+                    compteId: compteId),
+            child: Text(
+              _compteOtpSending
+                  ? '…'
+                  : _compteOtpSeconds > 0
+                      ? context
+                          .tr('resend_in', {'seconds': '$_compteOtpSeconds'})
+                      : context.tr('resend_code'),
             ),
           ),
         ),
-      ),
+      ],
     );
+  }
+
+  /// Envoie (ou renvoie) le code SMS au numéro à ajouter ou modifier
+  Future<void> _sendCompteOtp(
+    BuildContext context,
+    StateSetter setDialogState,
+    Reseau reseau,
+    String numero, {
+    String? compteId,
+  }) async {
+    setDialogState(() => _compteOtpSending = true);
+    try {
+      if (_compteOtpToken == null) {
+        _compteOtpToken = await SupabaseService.sendCompteOtp(
+          numero: numero,
+          idReseau: reseau.id,
+          compteId: compteId,
+        );
+      } else {
+        await SupabaseService.resendCompteOtp(_compteOtpToken!);
+      }
+      _compteOtpTimer?.cancel();
+      _compteOtpSeconds = 30;
+      _compteOtpTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+        if (!context.mounted) return t.cancel();
+        setDialogState(() => _compteOtpSeconds--);
+        if (_compteOtpSeconds <= 0) t.cancel();
+      });
+    } catch (e) {
+      if (!context.mounted) return;
+      ToastService.showError(context, authErrorMessage(context, e));
+      // Numéro déjà ajouté : inutile de rester sur la confirmation
+      if (e is AuthOtpException && e.code == 'compte_exists') {
+        Navigator.pop(context);
+        return;
+      }
+    }
+    if (context.mounted) setDialogState(() => _compteOtpSending = false);
   }
 
   void _showEditAccountModal(
@@ -1779,7 +1903,7 @@ class _WalletScreenState extends State<WalletScreen>
     Reseau reseau,
     String currentPhoneNumber,
   ) {
-    _editNumeroController.text = currentPhoneNumber;
+    _editNumeroController.text = PairDigitsFormatter.group(currentPhoneNumber);
     _editConfirmationController.clear();
     _isUpdatingAccount = false;
 
@@ -1906,7 +2030,9 @@ class _WalletScreenState extends State<WalletScreen>
                   controller: _editNumeroController,
                   keyboardType: TextInputType.phone,
                   autofocus: true,
-                  maxLength: 10,
+                  // « 07 01 02 03 04 » : 10 chiffres groupés 2 par 2
+                  inputFormatters: [PairDigitsFormatter(maxDigits: 10)],
+                  style: _numeroStyle,
                   onChanged: (value) {
                     setModalState(() {});
                   },
@@ -1915,6 +2041,11 @@ class _WalletScreenState extends State<WalletScreen>
                     filled: false,
                     counterText: '',
                     prefixText: '+225 ',
+                    prefixStyle: _numeroStyle,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 18,
+                    ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(20),
                     ),
@@ -1954,16 +2085,15 @@ class _WalletScreenState extends State<WalletScreen>
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: _getEditValidationError(reseau) == null &&
-                            _editNumeroController.text.trim().length == 10 &&
-                            _editNumeroController.text.trim() !=
-                                currentPhoneNumber
+                            _editNumeroDigits.length == 10 &&
+                            _editNumeroDigits != currentPhoneNumber
                         ? () {
                             _showEditConfirmationModal(
                               context,
                               setModalState,
                               compteId,
                               reseau,
-                              _editNumeroController.text.trim(),
+                              _editNumeroDigits,
                             );
                           }
                         : null,
@@ -1995,12 +2125,15 @@ class _WalletScreenState extends State<WalletScreen>
     );
   }
 
+  String get _editNumeroDigits =>
+      _editNumeroController.text.replaceAll(' ', '');
+
   String? _getEditValidationError(Reseau reseau) {
     if (_editNumeroController.text.isEmpty) {
       return null;
     }
 
-    final numero = _editNumeroController.text.trim();
+    final numero = _editNumeroDigits;
 
     // Vérifier la longueur minimale
     if (numero.length < 10) {
@@ -2044,6 +2177,8 @@ class _WalletScreenState extends State<WalletScreen>
   ) {
     _editConfirmationController.clear();
     _isUpdatingAccount = false;
+    _compteOtpToken = null;
+    var otpRequested = false;
 
     showModalBottomSheet(
       context: context,
@@ -2051,293 +2186,244 @@ class _WalletScreenState extends State<WalletScreen>
       isScrollControlled: true,
       builder: (context) => SafeArea(
         child: StatefulBuilder(
-          builder: (context, setDialogState) => Container(
-            decoration: BoxDecoration(
-              color: Theme.of(context).scaffoldBackgroundColor,
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(24),
-                topRight: Radius.circular(24),
+          builder: (context, setDialogState) {
+            // SMS envoyé une seule fois au nouveau numéro, à l'ouverture
+            if (!otpRequested) {
+              otpRequested = true;
+              WidgetsBinding.instance.addPostFrameCallback((_) =>
+                  _sendCompteOtp(context, setDialogState, reseau, numero,
+                      compteId: compteId));
+            }
+            return Container(
+              decoration: BoxDecoration(
+                color: Theme.of(context).scaffoldBackgroundColor,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(24),
+                  topRight: Radius.circular(24),
+                ),
               ),
-            ),
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(context).viewInsets.bottom + 60,
-              left: 24,
-              right: 24,
-              top: 24,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Handle bar
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 24),
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom + 60,
+                left: 24,
+                right: 24,
+                top: 24,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Handle bar
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 24),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  // Titre
+                  Text(
+                    context.tr('confirm_number'),
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                  const SizedBox(height: 24),
+                  // Réseau
+                  Container(
+                    padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                // Titre
-                Text(
-                  context.tr('confirm_number'),
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: Colors.grey.shade300,
+                        width: 1,
                       ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  context.tr('please_retype'),
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.grey.shade600,
-                      ),
-                ),
-                const SizedBox(height: 24),
-                // Réseau
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: Colors.grey.shade300,
-                      width: 1,
                     ),
-                  ),
-                  child: Row(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(6),
-                        child: Image.network(
-                          reseau.logo,
-                          width: 48,
-                          height: 32,
-                          fit: BoxFit.contain,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Container(
-                              width: 48,
-                              height: 32,
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade200,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Center(
-                                child: Text(
-                                  reseau.abreviation,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
+                    child: Row(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: Image.network(
+                            reseau.logo,
+                            width: 48,
+                            height: 32,
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Container(
+                                width: 48,
+                                height: 32,
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade200,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    reseau.abreviation,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
                                 ),
-                              ),
-                            );
-                          },
+                              );
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            reseau.nom,
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  _buildCompteOtpSection(
+                    context,
+                    setDialogState,
+                    reseau,
+                    numero,
+                    _editConfirmationController,
+                    compteId: compteId,
+                  ),
+                  const SizedBox(height: 32),
+                  // Boutons
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: _isUpdatingAccount
+                              ? null
+                              : () {
+                                  Navigator.pop(context);
+                                },
+                          style: OutlinedButton.styleFrom(
+                            overlayColor: Colors.transparent,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            side: BorderSide(
+                              color: Colors.grey.shade300,
+                            ),
+                            elevation: 0,
+                          ),
+                          child: Text(
+                            context.tr('cancel'),
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: Text(
-                          reseau.nom,
-                          style:
-                              Theme.of(context).textTheme.titleMedium?.copyWith(
+                        child: ElevatedButton(
+                          onPressed: _compteOtpToken != null &&
+                                  _editConfirmationController.text.length ==
+                                      4 &&
+                                  !_isUpdatingAccount
+                              ? () async {
+                                  setDialogState(() {
+                                    _isUpdatingAccount = true;
+                                  });
+
+                                  try {
+                                    await SupabaseService.updateCompte(
+                                      verificationToken: _compteOtpToken!,
+                                      otp: _editConfirmationController.text,
+                                      context: context,
+                                    );
+                                    _compteOtpTimer?.cancel();
+
+                                    // Fermer les modales
+                                    Navigator.pop(
+                                        context); // Fermer la modale de confirmation
+                                    Navigator.pop(
+                                        context); // Fermer la modale de modification
+
+                                    // Attendre que les modales soient complètement fermées
+                                    await Future.delayed(
+                                        const Duration(milliseconds: 200));
+
+                                    // Recharger les comptes
+                                    if (mounted) {
+                                      await _loadComptes();
+                                      await _loadDefaultCompte();
+
+                                      // Forcer un rebuild
+                                      if (mounted) {
+                                        setState(() {});
+                                      }
+
+                                      WidgetsBinding.instance
+                                          .addPostFrameCallback((_) {
+                                        if (mounted) {
+                                          setState(() {});
+                                        }
+                                      });
+                                    }
+                                  } catch (e) {
+                                    if (mounted && context.mounted) {
+                                      setDialogState(() {
+                                        _isUpdatingAccount = false;
+                                        _editConfirmationController.clear();
+                                      });
+                                    }
+                                  }
+                                }
+                              : null,
+                          style: ElevatedButton.styleFrom(
+                            overlayColor: Colors.transparent,
+                            backgroundColor: AppColors.secondary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: _isUpdatingAccount
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white,
+                                    ),
+                                  ),
+                                )
+                              : Text(
+                                  context.tr('confirm'),
+                                  style: TextStyle(
+                                    fontSize: 16,
                                     fontWeight: FontWeight.w600,
                                   ),
+                                ),
                         ),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 24),
-                // Champ de confirmation
-                TextField(
-                  controller: _editConfirmationController,
-                  keyboardType: TextInputType.phone,
-                  autofocus: true,
-                  maxLength: 10,
-                  onChanged: (value) {
-                    setDialogState(() {});
-                  },
-                  decoration: InputDecoration(
-                    hintText: context.tr('retype_number'),
-                    filled: false,
-                    counterText: '',
-                    prefixText: '+225 ',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
-                      borderSide: BorderSide(
-                        color: Colors.grey.shade300,
-                      ),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
-                      borderSide: BorderSide(
-                        color: AppColors.secondary,
-                        width: 2,
-                      ),
-                    ),
-                    errorBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
-                      borderSide: BorderSide(
-                        color: Colors.red,
-                        width: 2,
-                      ),
-                    ),
-                    focusedErrorBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
-                      borderSide: BorderSide(
-                        color: Colors.red,
-                        width: 2,
-                      ),
-                    ),
-                    errorText: _editConfirmationController.text.isNotEmpty &&
-                            (_editConfirmationController.text.trim().length !=
-                                    10 ||
-                                _editConfirmationController.text.trim() !=
-                                    numero)
-                        ? context.tr('numbers_mismatch')
-                        : null,
-                  ),
-                ),
-                const SizedBox(height: 32),
-                // Boutons
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: _isUpdatingAccount
-                            ? null
-                            : () {
-                                Navigator.pop(context);
-                              },
-                        style: OutlinedButton.styleFrom(
-                          overlayColor: Colors.transparent,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          side: BorderSide(
-                            color: Colors.grey.shade300,
-                          ),
-                          elevation: 0,
-                        ),
-                        child: Text(
-                          context.tr('cancel'),
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: _editConfirmationController.text.trim() ==
-                                    numero &&
-                                _editConfirmationController.text
-                                        .trim()
-                                        .length ==
-                                    10 &&
-                                !_isUpdatingAccount
-                            ? () async {
-                                setDialogState(() {
-                                  _isUpdatingAccount = true;
-                                });
-
-                                try {
-                                  await SupabaseService.updateCompte(
-                                    compteId: compteId,
-                                    numero: numero,
-                                    context: context,
-                                  );
-
-                                  // Fermer les modales
-                                  Navigator.pop(
-                                      context); // Fermer la modale de confirmation
-                                  Navigator.pop(
-                                      context); // Fermer la modale de modification
-
-                                  // Attendre que les modales soient complètement fermées
-                                  await Future.delayed(
-                                      const Duration(milliseconds: 200));
-
-                                  // Recharger les comptes
-                                  if (mounted) {
-                                    await _loadComptes();
-                                    await _loadDefaultCompte();
-
-                                    // Forcer un rebuild
-                                    if (mounted) {
-                                      setState(() {});
-                                    }
-
-                                    WidgetsBinding.instance
-                                        .addPostFrameCallback((_) {
-                                      if (mounted) {
-                                        setState(() {});
-                                      }
-                                    });
-                                  }
-                                } catch (e) {
-                                  if (mounted && context.mounted) {
-                                    setDialogState(() {
-                                      _isUpdatingAccount = false;
-                                    });
-                                    if (context.mounted) {
-                                      ToastService.showError(
-                                        context,
-                                        context.tr(
-                                            'error_x', {'error': e.toString()}),
-                                      );
-                                    }
-                                  }
-                                }
-                              }
-                            : null,
-                        style: ElevatedButton.styleFrom(
-                          overlayColor: Colors.transparent,
-                          backgroundColor: AppColors.secondary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          elevation: 0,
-                        ),
-                        child: _isUpdatingAccount
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    Colors.white,
-                                  ),
-                                ),
-                              )
-                            : Text(
-                                context.tr('confirm'),
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 32),
-              ],
-            ),
-          ),
+                  const SizedBox(height: 32),
+                ],
+              ),
+            );
+          },
         ),
       ),
-    );
+    ).whenComplete(() => _compteOtpTimer?.cancel());
   }
 
   void _showDeleteConfirmationModal(

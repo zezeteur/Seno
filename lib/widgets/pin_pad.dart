@@ -49,7 +49,17 @@ class PinKeypad extends StatelessWidget {
   final ValueChanged<String> onDigit;
   final VoidCallback onDelete;
 
-  const PinKeypad({super.key, required this.onDigit, required this.onDelete});
+  /// Touche optionnelle en bas à gauche (ex. déverrouillage biométrique)
+  final Widget? leading;
+  final VoidCallback? onLeading;
+
+  const PinKeypad({
+    super.key,
+    required this.onDigit,
+    required this.onDelete,
+    this.leading,
+    this.onLeading,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -94,7 +104,9 @@ class PinKeypad extends StatelessWidget {
           Row(children: row.map(digit).toList()),
         Row(
           children: [
-            const Expanded(child: SizedBox()),
+            leading == null
+                ? const Expanded(child: SizedBox())
+                : key(onTap: onLeading, child: leading!),
             digit('0'),
             key(
               onTap: onDelete,

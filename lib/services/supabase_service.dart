@@ -1,12 +1,13 @@
-import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/app_config.dart';
 import '../models/reseau.dart';
 import '../models/compte.dart';
+import '../utils/auth_errors.dart';
 import '../utils/toast_service.dart';
 import '../widgets/app_lock_gate.dart';
+import 'cache_store.dart';
 
 /// Service global pour gérer l'instance Supabase
 class SupabaseService {
@@ -85,7 +86,26 @@ class SupabaseService {
   }
 
   /// Blocage du code d'accès de l'utilisateur connecté
-  static Future<AccessLockStatus> getAccessLockStatus() async {
+  static Future<AccessLockStatus> getAccessLockStatus() =>
+      CacheStore.cached<AccessLockStatus>(
+        name: 'access_lock_status',
+        userId: client?.auth.currentUser?.id,
+        fetch: _getAccessLockStatusRemote,
+        encode: (v) => {
+          'locked_until': v.lockedUntil?.toIso8601String(),
+          'permanently_locked': v.permanentlyLocked,
+        },
+        decode: (j) {
+          final m = j as Map<String, dynamic>;
+          final until = m['locked_until'] as String?;
+          return AccessLockStatus(
+            lockedUntil: until == null ? null : DateTime.parse(until),
+            permanentlyLocked: m['permanently_locked'] == true,
+          );
+        },
+      );
+
+  static Future<AccessLockStatus> _getAccessLockStatusRemote() async {
     final rows = await client!.rpc('access_lock_status') as List;
     if (rows.isEmpty) return const AccessLockStatus();
     final row = Map<String, dynamic>.from(rows.first as Map);
@@ -124,26 +144,151 @@ class SupabaseService {
         {'action': 'set_code', 'token': token, 'code': code});
   }
 
-  /// Pseudo et photo de l'utilisateur connecté (écran de verrouillage)
-  static Future<({String? pseudo, String? avatarUrl})> getLockProfile() async {
+  // ============================================
+  // QR CODES (fixe = carte physique, dynamique = app)
+  // ============================================
+
+  /// QR fixe de l'utilisateur (mis en cache : sert aussi de secours hors ligne)
+  static Future<String> getStaticQr() => CacheStore.cached<String>(
+        name: 'qr_static',
+        userId: client?.auth.currentUser?.id,
+        fetch: () async =>
+            (await _invokeAuth('qr-code', {'action': 'static'}))['payload']
+                as String,
+        encode: (v) => v,
+        decode: (j) => j as String,
+      );
+
+  /// QR fixe déjà en cache, instantané (affichage avant le QR dynamique)
+  static String? peekStaticQr() => CacheStore.peek<String>(
+        name: 'qr_static',
+        userId: client?.auth.currentUser?.id,
+        decode: (j) => j as String,
+      );
+
+  /// Nouveau QR fixe : l'ancien (carte perdue) devient invalide
+  static Future<String> regenerateStaticQr() async {
+    final payload = (await _invokeAuth(
+        'qr-code', {'action': 'regenerate_static'}))['payload'] as String;
+    await CacheStore.remove(client?.auth.currentUser?.id, 'qr_static');
+    return payload;
+  }
+
+  /// QR dynamique : valable ~90 s, à rafraîchir avant [expiresAt]
+  static Future<({String payload, DateTime expiresAt})> getDynamicQr() async {
+    final res = await _invokeAuth('qr-code', {'action': 'dynamic'});
+    return (
+      payload: res['payload'] as String,
+      expiresAt: DateTime.parse(res['expires_at'] as String).toLocal(),
+    );
+  }
+
+  /// Résout un QR scanné (côté serveur uniquement)
+  static Future<QrPayee> resolveQr(String payload) async {
+    final res =
+        await _invokeAuth('qr-code', {'action': 'resolve', 'payload': payload});
+    return QrPayee.fromJson(res);
+  }
+
+  /// Incrémenté après chaque modification du profil : les écrans qui
+  /// l'affichent l'écoutent pour se recharger
+  static final profileRevision = ValueNotifier<int>(0);
+
+  /// Pseudo, prénoms et photo de l'utilisateur connecté
+  static Future<
+          ({String? pseudo, String? nom, String? prenoms, String? avatarUrl})>
+      getLockProfile() => CacheStore.cached(
+            name: 'profile',
+            userId: client?.auth.currentUser?.id,
+            fetch: _getLockProfileRemote,
+            encode: (v) => {
+              'pseudo': v.pseudo,
+              'nom': v.nom,
+              'prenoms': v.prenoms,
+              'avatar_url': v.avatarUrl,
+            },
+            decode: _decodeProfile,
+          );
+
+  /// Profil en cache, sans appel réseau (affichage immédiat)
+  static ({String? pseudo, String? nom, String? prenoms, String? avatarUrl})?
+      peekLockProfile() => CacheStore.peek(
+            name: 'profile',
+            userId: client?.auth.currentUser?.id,
+            decode: _decodeProfile,
+          );
+
+  static ({String? pseudo, String? nom, String? prenoms, String? avatarUrl})
+      _decodeProfile(Object? j) {
+    final m = j as Map<String, dynamic>;
+    return (
+      pseudo: m['pseudo'] as String?,
+      nom: m['nom'] as String?,
+      prenoms: m['prenoms'] as String?,
+      avatarUrl: m['avatar_url'] as String?,
+    );
+  }
+
+  static Future<
+          ({String? pseudo, String? nom, String? prenoms, String? avatarUrl})>
+      _getLockProfileRemote() async {
     final supabase = client;
     final userId = supabase?.auth.currentUser?.id;
     if (supabase == null || userId == null) {
-      return (pseudo: null, avatarUrl: null);
+      return (pseudo: null, nom: null, prenoms: null, avatarUrl: null);
     }
     final row = await supabase
         .from('profiles')
-        .select('pseudo, avatar_url')
+        .select('pseudo, nom, prenoms, avatar_url')
         .eq('id', userId)
         .maybeSingle();
     return (
       pseudo: row?['pseudo'] as String?,
+      nom: row?['nom'] as String?,
+      prenoms: row?['prenoms'] as String?,
       avatarUrl: row?['avatar_url'] as String?,
     );
   }
 
+  /// Pourcentage des frais d'envoi (table frais_transfert, mis en cache)
+  static Future<double> getFeePercent() => CacheStore.cached<double>(
+        name: 'frais_transfert',
+        userId: null,
+        fetch: () async {
+          final supabase = client;
+          if (supabase == null) {
+            throw const AuthOtpException('service_unavailable');
+          }
+          final row = await supabase
+              .from('frais_transfert')
+              .select('pourcentage')
+              .eq('id', 1)
+              .maybeSingle();
+          return (row?['pourcentage'] as num?)?.toDouble() ?? 0;
+        },
+        encode: (v) => v,
+        decode: (j) => (j as num).toDouble(),
+      );
+
   /// Coordonnées du support (table support_contacts)
-  static Future<SupportContacts> getSupportContacts() async {
+  static Future<SupportContacts> getSupportContacts() =>
+      CacheStore.cached<SupportContacts>(
+        name: 'support_contacts',
+        userId: null,
+        fetch: _getSupportContactsRemote,
+        encode: (v) =>
+            {'whatsapp': v.whatsapp, 'phone': v.phone, 'email': v.email},
+        decode: (j) {
+          final m = j as Map<String, dynamic>;
+          return SupportContacts(
+            whatsapp: m['whatsapp'] as String?,
+            phone: m['phone'] as String?,
+            email: m['email'] as String?,
+          );
+        },
+      );
+
+  static Future<SupportContacts> _getSupportContactsRemote() async {
     final supabase = client;
     if (supabase == null) throw const AuthOtpException('service_unavailable');
     final row = await supabase
@@ -161,7 +306,15 @@ class SupabaseService {
   }
 
   /// L'utilisateur connecté a-t-il déjà un code d'accès ?
-  static Future<bool> hasAccessCode() async {
+  static Future<bool> hasAccessCode() => CacheStore.cached<bool>(
+        name: 'has_access_code',
+        userId: client?.auth.currentUser?.id,
+        fetch: _hasAccessCodeRemote,
+        encode: (v) => v,
+        decode: (j) => j == true,
+      );
+
+  static Future<bool> _hasAccessCodeRemote() async {
     final result = await client!.rpc('has_access_code');
     return result == true;
   }
@@ -185,7 +338,15 @@ class SupabaseService {
   }
 
   /// Le profil de l'utilisateur connecté existe-t-il ?
-  static Future<bool> hasProfile() async {
+  static Future<bool> hasProfile() => CacheStore.cached<bool>(
+        name: 'has_profile',
+        userId: client?.auth.currentUser?.id,
+        fetch: _hasProfileRemote,
+        encode: (v) => v,
+        decode: (j) => j == true,
+      );
+
+  static Future<bool> _hasProfileRemote() async {
     final supabase = client;
     final userId = supabase?.auth.currentUser?.id;
     if (supabase == null || userId == null) return false;
@@ -218,6 +379,120 @@ class SupabaseService {
     });
   }
 
+  /// Date de naissance de l'utilisateur connecté
+  static Future<DateTime?> getBirthDate() async {
+    final supabase = client!;
+    final row = await supabase
+        .from('profiles')
+        .select('date_naissance')
+        .eq('id', supabase.auth.currentUser!.id)
+        .maybeSingle();
+    final value = row?['date_naissance'] as String?;
+    return value == null ? null : DateTime.tryParse(value);
+  }
+
+  /// Délai de changement de pseudo : 1 fois tous les 7 jours
+  static const pseudoCooldown = Duration(days: 7);
+
+  /// Date à partir de laquelle le pseudo peut être changé (null = maintenant)
+  static Future<DateTime?> getNextPseudoChange() async {
+    final supabase = client!;
+    final row = await supabase
+        .from('profiles')
+        .select('pseudo_changed_at')
+        .eq('id', supabase.auth.currentUser!.id)
+        .maybeSingle();
+    final value = row?['pseudo_changed_at'] as String?;
+    final changedAt = value == null ? null : DateTime.tryParse(value);
+    if (changedAt == null) return null;
+    final next = changedAt.toLocal().add(pseudoCooldown);
+    return next.isAfter(DateTime.now()) ? next : null;
+  }
+
+  /// Met à jour les champs renseignés du profil puis rafraîchit le cache
+  /// Envoie la photo de profil (bucket avatars, dossier = id utilisateur)
+  /// puis enregistre son URL publique dans le profil
+  static Future<void> uploadAvatar(Uint8List bytes) async {
+    final supabase = client!;
+    final userId = supabase.auth.currentUser!.id;
+    final path = '$userId/avatar.jpg';
+    final bucket = supabase.storage.from('avatars');
+    await bucket.uploadBinary(
+      path,
+      bytes,
+      fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: true),
+    );
+    // Paramètre de version : la nouvelle photo n'est pas masquée par un cache
+    final url =
+        '${bucket.getPublicUrl(path)}?v=${DateTime.now().millisecondsSinceEpoch}';
+    final rows = await supabase
+        .from('profiles')
+        .update({'avatar_url': url})
+        .eq('id', userId)
+        .select('id');
+    if (rows.isEmpty) throw const AuthOtpException('profile_update_denied');
+    try {
+      await getLockProfile();
+    } catch (_) {
+      await CacheStore.remove(userId, 'profile');
+    }
+    profileRevision.value++;
+  }
+
+  /// Supprime la photo de profil (fichier + URL dans le profil)
+  static Future<void> removeAvatar() async {
+    final supabase = client!;
+    final userId = supabase.auth.currentUser!.id;
+    final rows = await supabase
+        .from('profiles')
+        .update({'avatar_url': null})
+        .eq('id', userId)
+        .select('id');
+    if (rows.isEmpty) throw const AuthOtpException('profile_update_denied');
+    try {
+      await supabase.storage.from('avatars').remove(['$userId/avatar.jpg']);
+    } catch (_) {
+      // Fichier orphelin sans conséquence : le profil n'y fait plus référence
+    }
+    try {
+      await getLockProfile();
+    } catch (_) {
+      await CacheStore.remove(userId, 'profile');
+    }
+    profileRevision.value++;
+  }
+
+  static Future<void> updateProfile({
+    String? nom,
+    String? prenoms,
+    String? pseudo,
+    DateTime? dateNaissance,
+  }) async {
+    final supabase = client!;
+    final userId = supabase.auth.currentUser!.id;
+    final rows = await supabase
+        .from('profiles')
+        .update({
+          if (nom != null) 'nom': nom,
+          if (prenoms != null) 'prenoms': prenoms,
+          if (pseudo != null) 'pseudo': pseudo,
+          if (dateNaissance != null)
+            'date_naissance': dateNaissance.toIso8601String().substring(0, 10),
+        })
+        .eq('id', userId)
+        .select('id');
+    // Aucune ligne modifiée : refusé par la RLS (pas d'erreur renvoyée)
+    if (rows.isEmpty) throw const AuthOtpException('profile_update_denied');
+    try {
+      // Relecture : le cache reçoit la nouvelle version (utile hors ligne)
+      await getLockProfile();
+    } catch (_) {
+      // Relecture impossible : pas de copie périmée
+      await CacheStore.remove(userId, 'profile');
+    }
+    profileRevision.value++;
+  }
+
   /// Vérifie qu'aucun profil n'utilise déjà ce pseudo
   static Future<bool> isPseudoAvailable(String pseudo) async {
     final result =
@@ -226,124 +501,67 @@ class SupabaseService {
   }
 
   /// Récupérer la liste des réseaux
-  static Future<List<Reseau>> getReseaux() async {
-    try {
-      // Construction de l'URL complète de l'Edge Function
-      final url = '${AppConfig.supabaseUrl}/functions/v1/list-reseaux';
-
-      final response = await http.get(
-        Uri.parse(url),
-        headers: {
-          'Authorization': 'Bearer ${AppConfig.supabaseAnonKey}',
-          'apikey': AppConfig.supabaseAnonKey,
-        },
+  static Future<List<Reseau>> getReseaux() => CacheStore.cached<List<Reseau>>(
+        name: 'reseaux',
+        userId: null,
+        fetch: _getReseauxRemote,
+        encode: (v) => v.map((r) => r.toJson()).toList(),
+        decode: (j) => (j as List)
+            .map((e) => Reseau.fromJson(e as Map<String, dynamic>))
+            .toList(),
       );
 
-      if (response.statusCode != 200) {
-        throw Exception(
-            'Erreur lors de la récupération des réseaux: ${response.statusCode} - ${response.body}');
-      }
-
-      final data = json.decode(response.body) as Map<String, dynamic>;
-      final reseauxList = data['reseaux'] as List<dynamic>;
-
-      return reseauxList
-          .map((json) => Reseau.fromJson(json as Map<String, dynamic>))
-          .where((reseau) =>
-              reseau.statut) // Filtrer uniquement les réseaux actifs
-          .toList();
-    } catch (e) {
-      throw Exception('Erreur lors de la récupération des réseaux: $e');
-    }
+  static Future<List<Reseau>> _getReseauxRemote() async {
+    final rows = await client!
+        .from('reseaux')
+        .select('id, nom, abreviation, statut, logo')
+        .eq('statut', true)
+        .order('ordre');
+    return rows.map(Reseau.fromJson).toList();
   }
 
   /// Récupérer la liste des comptes de l'utilisateur connecté
-  static Future<List<Compte>> getComptes() async {
-    try {
-      final client = SupabaseService.client;
-      if (client == null) {
-        throw Exception('Supabase client non initialisé');
-      }
-
-      final session = client.auth.currentSession;
-      if (session == null) {
-        throw Exception('Utilisateur non connecté');
-      }
-
-      // Construction de l'URL pour récupérer les comptes
-      final url = '${AppConfig.supabaseUrl}/rest/v1/comptes';
-
-      final response = await http.get(
-        Uri.parse(url),
-        headers: {
-          'Authorization': 'Bearer ${session.accessToken}',
-          'apikey': AppConfig.supabaseAnonKey,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=representation',
-        },
+  static Future<List<Compte>> getComptes() => CacheStore.cached<List<Compte>>(
+        name: 'comptes',
+        userId: client?.auth.currentUser?.id,
+        fetch: _getComptesRemote,
+        encode: (v) => v.map((c) => c.toJson()).toList(),
+        decode: (j) => (j as List)
+            .map((e) => Compte.fromJson(e as Map<String, dynamic>))
+            .toList(),
       );
 
-      if (response.statusCode != 200) {
-        throw Exception(
-            'Erreur lors de la récupération des comptes: ${response.statusCode} - ${response.body}');
-      }
+  static const _compteColumns =
+      'id, proprietaire, numero, id_reseau, created_at, updated_at';
 
-      final comptesList = json.decode(response.body) as List<dynamic>;
-
-      return comptesList
-          .map((json) => Compte.fromJson(json as Map<String, dynamic>))
-          .toList();
-    } catch (e) {
-      throw Exception('Erreur lors de la récupération des comptes: $e');
-    }
+  static Future<List<Compte>> _getComptesRemote() async {
+    // RLS : seuls les comptes de l'utilisateur connecté sont renvoyés
+    final rows = await client!
+        .from('comptes')
+        .select(_compteColumns)
+        .order('created_at');
+    return rows.map(Compte.fromJson).toList();
   }
 
   /// Récupérer le compte par défaut de l'utilisateur connecté
-  static Future<Compte?> getDefaultCompte() async {
-    try {
-      final client = SupabaseService.client;
-      if (client == null) {
-        throw Exception('Supabase client non initialisé');
-      }
-
-      final session = client.auth.currentSession;
-      if (session == null) {
-        throw Exception('Utilisateur non connecté');
-      }
-
-      // Construction de l'URL de l'Edge Function
-      final url = '${AppConfig.supabaseUrl}/functions/v1/get-default-compte';
-
-      final response = await http.get(
-        Uri.parse(url),
-        headers: {
-          'Authorization': 'Bearer ${session.accessToken}',
-          'Content-Type': 'application/json',
-        },
+  static Future<Compte?> getDefaultCompte() => CacheStore.cached<Compte?>(
+        name: 'default_compte',
+        userId: client?.auth.currentUser?.id,
+        fetch: _getDefaultCompteRemote,
+        encode: (v) => v?.toJson(),
+        decode: (j) =>
+            j == null ? null : Compte.fromJson(j as Map<String, dynamic>),
       );
 
-      if (response.statusCode == 404) {
-        // Aucun compte par défaut trouvé
-        return null;
-      }
-
-      if (response.statusCode != 200) {
-        throw Exception(
-            'Erreur lors de la récupération du compte par défaut: ${response.statusCode} - ${response.body}');
-      }
-
-      final data = json.decode(response.body) as Map<String, dynamic>;
-      final compteData = data['compte'] as Map<String, dynamic>?;
-
-      if (compteData == null) {
-        return null;
-      }
-
-      return Compte.fromJson(compteData);
-    } catch (e) {
-      throw Exception(
-          'Erreur lors de la récupération du compte par défaut: $e');
-    }
+  static Future<Compte?> _getDefaultCompteRemote() async {
+    final id = await client!.rpc('get_default_compte_id') as String?;
+    if (id == null) return null;
+    final row = await client!
+        .from('comptes')
+        .select(_compteColumns)
+        .eq('id', id)
+        .maybeSingle();
+    return row == null ? null : Compte.fromJson(row);
   }
 
   /// Définir un compte comme compte par défaut
@@ -352,304 +570,92 @@ class SupabaseService {
     BuildContext? context,
   }) async {
     try {
-      final client = SupabaseService.client;
-      if (client == null) {
-        throw Exception('Supabase client non initialisé');
-      }
-
-      // Obtenir la session actuelle et rafraîchir si nécessaire
-      var session = client.auth.currentSession;
-      if (session == null) {
-        throw Exception('Utilisateur non connecté');
-      }
-
-      // Vérifier si le token est expiré et le rafraîchir si nécessaire
-      if (session.isExpired) {
-        final authResponse = await client.auth.refreshSession();
-        session = authResponse.session;
-        if (session == null) {
-          throw Exception('Impossible de rafraîchir la session');
-        }
-      }
-
-      // Vérifier que nous avons bien le JWT de l'utilisateur (USER_JWT, pas service_role key)
-      final userJwt = session.accessToken;
-      if (userJwt.isEmpty) {
-        throw Exception('Token utilisateur non disponible');
-      }
-
-      // Construction de l'URL de l'Edge Function
-      final url = '${AppConfig.supabaseUrl}/functions/v1/set-default-compte';
-
-      final response = await http.post(
-        Uri.parse(url),
-        headers: {
-          'Authorization': 'Bearer $userJwt',
-          'Content-Type': 'application/json',
-        },
-        body: json.encode({
-          'default_compte_id': compteId,
-        }),
-      );
-
-      if (response.statusCode != 200 && response.statusCode != 201) {
-        throw Exception(
-            'Erreur lors de la définition du compte par défaut: ${response.statusCode} - ${response.body}');
-      }
-
-      // La réponse contient les informations mises à jour
-      final responseData = json.decode(response.body) as Map<String, dynamic>;
-
-      // Vérifier que la réponse est valide
-      if (!responseData.containsKey('status') ||
-          responseData['status'] != 'ok') {
-        throw Exception(
-            'Format de réponse invalide ou erreur: ${response.body}');
-      }
-
-      // Extraire le compte_par_defaut depuis data.data
-      final data = responseData['data'] as Map<String, dynamic>?;
-      if (data == null || !data.containsKey('compte_par_defaut')) {
-        throw Exception('Format de réponse invalide: ${response.body}');
-      }
-
-      // Afficher un toast de succès
+      await client!
+          .rpc('set_default_compte', params: {'p_compte_id': compteId});
       if (context != null && context.mounted) {
-        ToastService.showInfo(
-          context,
-          'Compte défini comme compte par défaut',
-        );
+        ToastService.showInfo(context, 'Compte défini comme compte par défaut');
       }
     } catch (e) {
-      // Afficher un toast d'erreur
       if (context != null && context.mounted) {
         ToastService.showError(
-          context,
-          'Erreur: ${e.toString()}',
-        );
+            context, 'Impossible de définir le compte par défaut');
       }
       throw Exception('Erreur lors de la définition du compte par défaut: $e');
     }
   }
 
-  /// Créer un nouveau compte
-  static Future<Compte> createCompte({
+  /// Ajout de compte, étape 1 : SMS au numéro saisi. Renvoie le jeton de vérification.
+  static Future<String> sendCompteOtp({
     required String numero,
     required String idReseau,
-    required bool setAsDefault,
+    String? compteId, // modification d'un compte existant
   }) async {
-    try {
-      final client = SupabaseService.client;
-      if (client == null) {
-        throw Exception('Supabase client non initialisé');
-      }
-
-      final session = client.auth.currentSession;
-      if (session == null) {
-        throw Exception('Utilisateur non connecté');
-      }
-
-      // Construction de l'URL de l'Edge Function
-      final url = '${AppConfig.supabaseUrl}/functions/v1/create-compte-api';
-
-      final response = await http.post(
-        Uri.parse(url),
-        headers: {
-          'Authorization': 'Bearer ${session.accessToken}',
-          'apikey': AppConfig.supabaseAnonKey,
-          'Content-Type': 'application/json',
-        },
-        body: json.encode({
-          'numero': numero,
-          'id_reseau': idReseau,
-          'set_as_default': setAsDefault,
-        }),
-      );
-
-      if (response.statusCode != 200 && response.statusCode != 201) {
-        throw Exception(
-            'Erreur lors de la création du compte: ${response.statusCode} - ${response.body}');
-      }
-
-      final data = json.decode(response.body) as Map<String, dynamic>;
-
-      // La réponse contient {"compte": {...}}, il faut extraire le compte
-      if (!data.containsKey('compte')) {
-        throw Exception('Format de réponse invalide: ${response.body}');
-      }
-
-      final compteData = data['compte'] as Map<String, dynamic>;
-
-      return Compte.fromJson(compteData);
-    } catch (e) {
-      throw Exception('Erreur lors de la création du compte: $e');
-    }
+    final res = await _invokeAuth('compte-otp', {
+      'action': 'send',
+      'numero': numero,
+      'id_reseau': idReseau,
+      if (compteId != null) 'compte_id': compteId,
+    });
+    return res['token'] as String;
   }
 
-  /// Mettre à jour un compte existant
+  static Future<void> resendCompteOtp(String token) async {
+    await _invokeAuth('compte-otp', {'action': 'resend', 'token': token});
+  }
+
+  /// Ajout de compte, étape 2 : code SMS correct → le compte est créé côté serveur
+  static Future<Compte> createCompte({
+    required String verificationToken,
+    required String otp,
+    required bool setAsDefault,
+  }) async {
+    final res = await _invokeAuth('compte-otp', {
+      'action': 'confirm',
+      'token': verificationToken,
+      'otp': otp,
+      'set_as_default': setAsDefault,
+    });
+    return Compte.fromJson(Map<String, dynamic>.from(res['compte'] as Map));
+  }
+
+  /// Modification du numéro : code SMS reçu sur le nouveau numéro → mise à jour côté serveur
   static Future<Compte> updateCompte({
-    required String compteId,
-    required String numero,
+    required String verificationToken,
+    required String otp,
     BuildContext? context,
   }) async {
     try {
-      final supabase = client;
-      if (supabase == null) {
-        throw Exception('Supabase n\'est pas initialisé');
-      }
-
-      var session = supabase.auth.currentSession;
-      if (session == null) {
-        throw Exception('Utilisateur non authentifié');
-      }
-
-      // Rafraîchir la session si elle est expirée
-      if (session.isExpired) {
-        await supabase.auth.refreshSession();
-        final newSession = supabase.auth.currentSession;
-        if (newSession == null) {
-          throw Exception('Impossible de rafraîchir la session');
-        }
-        session = newSession;
-      }
-
-      final url =
-          Uri.parse('${AppConfig.supabaseUrl}/functions/v1/user-comptes');
-
-      final response = await http.post(
-        url,
-        headers: {
-          'Authorization': 'Bearer ${session.accessToken}',
-          'apikey': AppConfig.supabaseAnonKey,
-          'Content-Type': 'application/json',
-        },
-        body: json.encode({
-          'id': compteId,
-          'numero': numero,
-        }),
-      );
-
-      if (response.statusCode != 200 && response.statusCode != 201) {
-        if (context != null && context.mounted) {
-          ToastService.showError(
-            context,
-            'Erreur lors de la modification du compte',
-          );
-        }
-        throw Exception(
-            'Erreur lors de la modification du compte: ${response.statusCode} - ${response.body}');
-      }
-
-      final responseData = json.decode(response.body);
-
-      // La réponse peut être un tableau de comptes ou un objet unique
-      Map<String, dynamic> compteData;
-
-      if (responseData is List) {
-        // Si c'est un tableau, trouver le compte modifié par son ID
-        final compteList = responseData;
-        final compteFound = compteList.firstWhere(
-          (compte) => (compte as Map<String, dynamic>)['id'] == compteId,
-          orElse: () => null,
-        );
-
-        if (compteFound == null) {
-          throw Exception('Compte modifié non trouvé dans la réponse');
-        }
-
-        compteData = compteFound;
-      } else if (responseData is Map) {
-        // Si c'est un objet, vérifier s'il contient 'compte' ou utiliser directement
-        final data = responseData as Map<String, dynamic>;
-        if (data.containsKey('compte')) {
-          compteData = data['compte'] as Map<String, dynamic>;
-        } else {
-          compteData = data;
-        }
-      } else {
-        throw Exception(
-            'Format de réponse inattendu: ${responseData.runtimeType}');
-      }
-
+      final res = await _invokeAuth('compte-otp', {
+        'action': 'confirm',
+        'token': verificationToken,
+        'otp': otp,
+      });
       if (context != null && context.mounted) {
-        ToastService.showInfo(
-          context,
-          'Compte modifié avec succès',
-        );
+        ToastService.showInfo(context, 'Compte modifié avec succès');
       }
-
-      return Compte.fromJson(compteData);
+      return Compte.fromJson(Map<String, dynamic>.from(res['compte'] as Map));
     } catch (e) {
       if (context != null && context.mounted) {
-        ToastService.showError(
-          context,
-          'Erreur lors de la modification: ${e.toString()}',
-        );
+        ToastService.showError(context, authErrorMessage(context, e));
       }
-      throw Exception('Erreur lors de la modification du compte: $e');
+      rethrow;
     }
   }
 
-  /// Supprimer un compte
+  /// Supprimer un compte (le compte par défaut est retiré automatiquement)
   static Future<void> deleteCompte({
     required String compteId,
     BuildContext? context,
   }) async {
     try {
-      final supabase = client;
-      if (supabase == null) {
-        throw Exception('Supabase n\'est pas initialisé');
-      }
-
-      var session = supabase.auth.currentSession;
-      if (session == null) {
-        throw Exception('Utilisateur non authentifié');
-      }
-
-      // Rafraîchir la session si elle est expirée
-      if (session.isExpired) {
-        await supabase.auth.refreshSession();
-        final newSession = supabase.auth.currentSession;
-        if (newSession == null) {
-          throw Exception('Impossible de rafraîchir la session');
-        }
-        session = newSession;
-      }
-
-      final url = Uri.parse(
-          '${AppConfig.supabaseUrl}/functions/v1/delete-compte?compte_id=$compteId');
-
-      final response = await http.get(
-        url,
-        headers: {
-          'Authorization': 'Bearer ${session.accessToken}',
-          'Content-Type': 'application/json',
-        },
-      );
-
-      if (response.statusCode != 200 && response.statusCode != 204) {
-        if (context != null && context.mounted) {
-          ToastService.showError(
-            context,
-            'Erreur lors de la suppression du compte',
-          );
-        }
-        throw Exception(
-            'Erreur lors de la suppression du compte: ${response.statusCode} - ${response.body}');
-      }
-
+      await client!.from('comptes').delete().eq('id', compteId);
       if (context != null && context.mounted) {
-        ToastService.showInfo(
-          context,
-          'Compte supprimé avec succès',
-        );
+        ToastService.showInfo(context, 'Compte supprimé avec succès');
       }
     } catch (e) {
       if (context != null && context.mounted) {
         ToastService.showError(
-          context,
-          'Erreur lors de la suppression: ${e.toString()}',
-        );
+            context, 'Erreur lors de la suppression du compte');
       }
       throw Exception('Erreur lors de la suppression du compte: $e');
     }
@@ -700,4 +706,43 @@ class SupportContacts {
   const SupportContacts({this.whatsapp, this.phone, this.email});
 
   bool get isEmpty => whatsapp == null && phone == null && email == null;
+}
+
+/// Destinataire trouvé en scannant un QR Seno (aucun identifiant en clair)
+class QrPayee {
+  final String pseudo;
+  final String prenom;
+  final String? avatarUrl;
+  final String? numeroMasque;
+  final String? reseau;
+  final String? abreviation;
+  final bool isSelf;
+
+  /// Référence chiffrée à transmettre lors de l'envoi d'argent
+  final String payeeRef;
+
+  const QrPayee({
+    required this.pseudo,
+    required this.prenom,
+    required this.avatarUrl,
+    required this.numeroMasque,
+    required this.reseau,
+    required this.abreviation,
+    required this.isSelf,
+    required this.payeeRef,
+  });
+
+  factory QrPayee.fromJson(Map<String, dynamic> json) {
+    final compte = json['compte'] as Map?;
+    return QrPayee(
+      pseudo: json['pseudo'] as String? ?? '',
+      prenom: json['prenom'] as String? ?? '',
+      avatarUrl: json['avatar_url'] as String?,
+      numeroMasque: compte?['numero_masque'] as String?,
+      reseau: compte?['reseau'] as String?,
+      abreviation: compte?['abreviation'] as String?,
+      isSelf: json['is_self'] == true,
+      payeeRef: json['payee_ref'] as String,
+    );
+  }
 }

@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../screens/lock_screen.dart';
 import '../screens/login_screen.dart';
+import '../l10n/app_strings.dart';
+import '../services/cache_store.dart';
 import '../services/supabase_service.dart';
 
 /// Verrouille l'app (code d'accès) à l'ouverture et dès qu'elle passe
@@ -26,6 +28,8 @@ class AppLockGate extends StatefulWidget {
 }
 
 class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
+  final _lockHeroController = MaterialApp.createMaterialHeroController();
+
   bool _locked = false;
   StreamSubscription<AuthState>? _authSub;
 
@@ -48,6 +52,8 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
       _authSub = SupabaseService.client!.auth.onAuthStateChange.listen((data) {
         if (data.event == AuthChangeEvent.signedOut) {
           AppLockGate.hasAccessCode.value = null;
+          // Données du compte : jamais conservées après la déconnexion
+          CacheStore.clear();
           if (mounted) setState(() => _locked = false);
         } else if (data.event == AuthChangeEvent.signedIn) {
           _refreshHasCode();
@@ -60,6 +66,7 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _authSub?.cancel();
+    _lockHeroController.dispose();
     super.dispose();
   }
 
@@ -102,17 +109,60 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
         Offstage(
             offstage: _locked,
             child: TickerMode(enabled: !_locked, child: widget.child)),
+        // Bandeau hors ligne : les infos affichées viennent du cache
+        if (!_locked)
+          ValueListenableBuilder<bool>(
+            valueListenable: CacheStore.offline,
+            builder: (context, offline, _) => offline
+                ? Positioned(
+                    top: MediaQuery.of(context).viewPadding.top + 4,
+                    left: 0,
+                    right: 0,
+                    child: const Center(child: _OfflineBanner()),
+                  )
+                : const SizedBox.shrink(),
+          ),
         if (_locked)
-          // Navigateur propre : toasts et page Support s'ouvrent au-dessus du verrou
-          Navigator(
-            onGenerateRoute: (_) => MaterialPageRoute(
-              builder: (_) => LockScreen(
-                onUnlocked: () => setState(() => _locked = false),
-                onSignedOut: _onSignedOut,
+          // Navigateur propre : toasts et page Support s'ouvrent au-dessus du verrou.
+          // HeroController dédié : celui de MaterialApp sert déjà au navigateur principal
+          HeroControllerScope(
+            controller: _lockHeroController,
+            child: Navigator(
+              onGenerateRoute: (_) => MaterialPageRoute(
+                builder: (_) => LockScreen(
+                  onUnlocked: () => setState(() => _locked = false),
+                  onSignedOut: _onSignedOut,
+                ),
               ),
             ),
           ),
       ],
+    );
+  }
+}
+
+class _OfflineBanner extends StatelessWidget {
+  const _OfflineBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.black87,
+      borderRadius: BorderRadius.circular(20),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off, size: 16, color: Colors.white),
+            const SizedBox(width: 8),
+            Text(
+              context.tr('offline_banner'),
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

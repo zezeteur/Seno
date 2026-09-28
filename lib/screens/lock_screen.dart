@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hugeicons/hugeicons.dart';
+import 'package:local_auth/local_auth.dart';
 import '../l10n/app_strings.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_colors.dart';
@@ -31,7 +32,7 @@ class LockScreen extends StatefulWidget {
   State<LockScreen> createState() => _LockScreenState();
 }
 
-class _LockScreenState extends State<LockScreen> {
+class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
   static const int _codeLength = 5;
 
   String _code = '';
@@ -43,6 +44,14 @@ class _LockScreenState extends State<LockScreen> {
   bool _blocked = false;
   Timer? _ticker;
 
+  // Déverrouillage biométrique : visage ou empreinte selon l'appareil
+  final _localAuth = LocalAuthentication();
+  bool _biometricAvailable = false;
+  bool _hasFace = false;
+  bool _hasFingerprint = false;
+  bool _authenticating = false;
+  bool _wasInBackground = false;
+
   String? _pseudo;
   String? _avatarUrl;
 
@@ -52,8 +61,87 @@ class _LockScreenState extends State<LockScreen> {
   @override
   void initState() {
     super.initState();
-    _loadLockStatus();
+    WidgetsBinding.instance.addObserver(this);
+    // État de blocage d'abord : pas de demande biométrique pendant un blocage
+    _loadLockStatus().then((_) => _initBiometrics());
     _loadProfile();
+    SupabaseService.profileRevision.addListener(_loadProfile);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Retour dans l'app alors qu'elle est verrouillée : nouvelle demande biométrique
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _wasInBackground = true;
+    } else if (state == AppLifecycleState.resumed && _wasInBackground) {
+      _wasInBackground = false;
+      _authenticateBiometric();
+    }
+  }
+
+  Future<void> _initBiometrics() async {
+    try {
+      final supported = await _localAuth.isDeviceSupported();
+      final types = supported
+          ? await _localAuth.getAvailableBiometrics()
+          : const <BiometricType>[];
+      if (!mounted || types.isEmpty) return;
+      setState(() {
+        _biometricAvailable = true;
+        _hasFace = types.contains(BiometricType.face);
+        // Android ne précise souvent que strong/weak : empreinte par défaut
+        _hasFingerprint =
+            types.contains(BiometricType.fingerprint) || !_hasFace;
+      });
+      _authenticateBiometric();
+    } catch (_) {
+      // Pas de biométrie : le code d'accès reste disponible
+    }
+  }
+
+  Future<void> _authenticateBiometric() async {
+    // Blocage serveur : la biométrie ne le contourne pas
+    if (!_biometricAvailable ||
+        _authenticating ||
+        _isLoading ||
+        _blocked ||
+        _isTempLocked) {
+      return;
+    }
+    _authenticating = true;
+    try {
+      final ok = await _localAuth.authenticate(
+        localizedReason: context.tr('biometric_reason'),
+        biometricOnly: true,
+      );
+      if (ok && mounted) widget.onUnlocked();
+    } catch (_) {
+      // Annulé, trop d'essais ou capteur verrouillé : saisie du code
+    } finally {
+      _authenticating = false;
+    }
+  }
+
+  /// Visage et/ou empreinte selon ce que l'appareil propose
+  Widget _buildBiometricIcon() {
+    final both = _hasFace && _hasFingerprint;
+    final size = both ? 24.0 : 30.0;
+    Widget icon(dynamic data) =>
+        HugeIcon(icon: data, size: size, color: AppColors.textOnPrimary);
+    if (!both) {
+      return icon(_hasFace
+          ? HugeIcons.strokeRoundedFaceId
+          : HugeIcons.strokeRoundedFingerPrint);
+    }
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        icon(HugeIcons.strokeRoundedFaceId),
+        const SizedBox(width: 6),
+        icon(HugeIcons.strokeRoundedFingerPrint),
+      ],
+    );
   }
 
   Future<void> _loadProfile() async {
@@ -92,6 +180,8 @@ class _LockScreenState extends State<LockScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    SupabaseService.profileRevision.removeListener(_loadProfile);
     _ticker?.cancel();
     super.dispose();
   }
@@ -398,7 +488,12 @@ class _LockScreenState extends State<LockScreen> {
                         : null,
                   ),
                   const Spacer(),
-                  PinKeypad(onDigit: _onDigit, onDelete: _onDelete),
+                  PinKeypad(
+                    onDigit: _onDigit,
+                    onDelete: _onDelete,
+                    onLeading: _authenticateBiometric,
+                    leading: _biometricAvailable ? _buildBiometricIcon() : null,
+                  ),
                   const SizedBox(height: 8),
                   Center(
                     child: TextButton(

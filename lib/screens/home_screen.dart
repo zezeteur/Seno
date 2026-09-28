@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import '../l10n/app_strings.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:hugeicons/hugeicons.dart';
-import 'package:qr_flutter/qr_flutter.dart';
+import '../widgets/dynamic_qr.dart';
+import '../services/supabase_service.dart';
 import '../theme/app_colors.dart';
+import '../widgets/user_avatar.dart';
 import 'qr_code_viewer_screen.dart';
+import 'send_money_screen.dart';
 import 'wallet_screen.dart';
 import 'statistics_screen.dart';
 import 'account_screen.dart';
@@ -26,40 +29,65 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _currentIndex = widget.initialIndex;
+    _loadFirstName();
+    SupabaseService.profileRevision.addListener(_loadFirstName);
+  }
+
+  @override
+  void dispose() {
+    SupabaseService.profileRevision.removeListener(_loadFirstName);
+    super.dispose();
+  }
+
+  String? _firstName;
+  String? _pseudo;
+  String? _avatarUrl;
+
+  Future<void> _loadFirstName() async {
+    try {
+      final profile = await SupabaseService.getLockProfile();
+      // Premier prénom seulement : « Jean Marc » → « Jean »
+      final first = profile.prenoms?.trim().split(RegExp(r'\s+')).first;
+      if (mounted) {
+        setState(() {
+          _firstName = first;
+          _pseudo = profile.pseudo;
+          _avatarUrl = profile.avatarUrl;
+        });
+      }
+    } catch (_) {
+      // Hors ligne : le libellé par défaut reste affiché
+    }
   }
 
   String _getUserName() {
-    final user = supabase.auth.currentUser;
-    if (user != null) {
-      // Essayer d'obtenir le nom depuis user_metadata
-      final fullName = user.userMetadata?['full_name'] as String?;
-      if (fullName != null && fullName.isNotEmpty) {
-        return fullName;
-      }
-
-      // Essayer d'obtenir le nom depuis user_metadata avec 'name'
-      final name = user.userMetadata?['name'] as String?;
-      if (name != null && name.isNotEmpty) {
-        return name;
-      }
-
-      // Utiliser l'email comme fallback
-      if (user.email != null && user.email!.isNotEmpty) {
-        // Extraire le nom de l'email (partie avant @)
-        final emailParts = user.email!.split('@');
-        return emailParts[0];
-      }
-    }
-    return context.tr('user');
+    final name = _firstName;
+    return name != null && name.isNotEmpty ? name : context.tr('user');
   }
 
-  String _getQRCodeData() {
-    final user = supabase.auth.currentUser;
-    if (user != null && user.id.isNotEmpty) {
-      // Générer un QR code avec l'ID de l'utilisateur
-      return user.id;
-    }
-    return 'seno://user/default';
+  /// Photo de profil, sinon initiale du prénom, sinon icône utilisateur
+  Widget _buildAvatar(BuildContext context) {
+    final name = _firstName;
+    final initial =
+        name != null && name.isNotEmpty ? name[0].toUpperCase() : null;
+    return CircleAvatar(
+      radius: 24,
+      backgroundColor: Colors.black,
+      foregroundImage: _avatarUrl != null ? NetworkImage(_avatarUrl!) : null,
+      child: initial != null
+          ? Text(
+              initial,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.bold,
+                  ),
+            )
+          : const HugeIcon(
+              icon: HugeIcons.strokeRoundedUser,
+              size: 22,
+              color: AppColors.primary,
+            ),
+    );
   }
 
   @override
@@ -143,8 +171,13 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              _buildAvatar(context),
+                              const SizedBox(height: 12),
+                              // Une seule ligne : prénom long tronqué (« Hello Jean-Christo… »)
                               Text(
-                                'Hello',
+                                'Hello ${_getUserName()}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: Theme.of(context)
                                     .textTheme
                                     .displayLarge
@@ -154,18 +187,22 @@ class _HomeScreenState extends State<HomeScreen> {
                                       fontSize: 20,
                                     ),
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                _getUserName(),
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .displayLarge
-                                    ?.copyWith(
-                                      color: Colors.black,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 20,
-                                    ),
-                              ),
+                              if (_pseudo?.isNotEmpty ?? false) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  '@$_pseudo',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.copyWith(
+                                        color:
+                                            Colors.black.withValues(alpha: 0.6),
+                                        fontSize: 14,
+                                      ),
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -174,12 +211,12 @@ class _HomeScreenState extends State<HomeScreen> {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) => QRCodeViewerScreen(
-                                  qrData: _getQRCodeData(),
-                                ),
+                                builder: (context) =>
+                                    const QRCodeViewerScreen(),
                               ),
                             );
                           },
+                          // Marge blanche : les repères du QR ne sont pas rognés
                           child: Container(
                             width: 120,
                             height: 120,
@@ -187,24 +224,8 @@ class _HomeScreenState extends State<HomeScreen> {
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(24),
                             ),
-                            padding: const EdgeInsets.all(2),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(20),
-                              child: QrImageView(
-                                data: _getQRCodeData(),
-                                version: QrVersions.auto,
-                                size: 116,
-                                backgroundColor: Colors.white,
-                                eyeStyle: const QrEyeStyle(
-                                  eyeShape: QrEyeShape.circle,
-                                  color: Colors.black,
-                                ),
-                                dataModuleStyle: const QrDataModuleStyle(
-                                  dataModuleShape: QrDataModuleShape.circle,
-                                  color: Colors.black,
-                                ),
-                              ),
-                            ),
+                            padding: const EdgeInsets.all(10),
+                            child: const DynamicQrCode(size: 100),
                           ),
                         ),
                       ],
@@ -245,7 +266,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           _buildSendContact(
                             context,
                             icon: HugeIcons.strokeRoundedAiUser,
-                            label: 'Devon',
+                            label: 'devon',
                             isIcon: false,
                             color: Colors.blue,
                           ),
@@ -253,7 +274,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           _buildSendContact(
                             context,
                             icon: HugeIcons.strokeRoundedAiUser,
-                            label: 'Sara',
+                            label: 'sara_k',
                             isIcon: false,
                             color: Colors.green,
                           ),
@@ -261,15 +282,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           _buildSendContact(
                             context,
                             icon: HugeIcons.strokeRoundedAiUser,
-                            label: 'John',
-                            isIcon: false,
-                            color: Colors.orange,
-                          ),
-                          const SizedBox(width: 12),
-                          _buildSendContact(
-                            context,
-                            icon: HugeIcons.strokeRoundedAiUser,
-                            label: 'Ale',
+                            label: 'moussa225',
                             isIcon: false,
                             color: Colors.purple,
                           ),
@@ -293,38 +306,75 @@ class _HomeScreenState extends State<HomeScreen> {
     required String label,
     required bool isIcon,
     Color? color,
+    String? avatarUrl,
   }) {
+    // Bouton d'envoi : pilule noire avec le texte à l'intérieur
+    if (isIcon) {
+      return GestureDetector(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const SendMoneyScreen()),
+        ),
+        child: Column(
+          children: [
+            Container(
+              height: 56,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              decoration: BoxDecoration(
+                color: Colors.black,
+                borderRadius: BorderRadius.circular(28),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  HugeIcon(icon: icon, size: 18, color: Colors.white),
+                ],
+              ),
+            ),
+            // Même hauteur que les contacts (nom sous l'avatar) pour l'alignement
+            const SizedBox(height: 24),
+          ],
+        ),
+      );
+    }
+
     return GestureDetector(
       onTap: () {
         // Fonctionnalité à venir
       },
       child: Column(
         children: [
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              color: isIcon ? Colors.black : color ?? AppColors.secondary,
-              shape: BoxShape.circle,
-            ),
-            child: Center(
-              child: Transform.scale(
-                scale: 0.95,
-                child: HugeIcon(
-                  icon: icon,
-                  size: 20,
-                  color: Colors.white,
-                ),
-              ),
-            ),
+          UserAvatar(
+            pseudo: label,
+            avatarUrl: avatarUrl,
+            radius: 28,
+            backgroundColor: color ?? AppColors.secondary,
+            foregroundColor: Colors.white,
           ),
-          const SizedBox(height: 8),
-          Text(
-            label,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Colors.black.withOpacity(0.6),
-                  fontSize: 12,
-                ),
+          const SizedBox(height: 6),
+          // Largeur fixe : un pseudo trop long est tronqué (« moussa2… »)
+          SizedBox(
+            width: 64,
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.black.withOpacity(0.6),
+                    fontSize: 12,
+                    height: 1.2,
+                  ),
+            ),
           ),
         ],
       ),
@@ -392,10 +442,6 @@ class _HomeScreenState extends State<HomeScreen> {
             amount: '- 200',
             isNegative: true,
           ),
-          const SizedBox(height: 12),
-
-          // Bouton Add card
-          _buildAddCardButton(context),
           const SizedBox(height: 12),
 
           // Transaction McDonald's
@@ -639,59 +685,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildAddCardButton(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: AppColors.secondary,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppColors.primary,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Transform.scale(
-              scale: 0.95,
-              child: HugeIcon(
-                icon: HugeIcons.strokeRoundedCreditCard,
-                size: 20,
-                color: Theme.of(context).colorScheme.onSurface,
-              ),
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  context.tr('add_card_title'),
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 16,
-                      ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  context.tr('add_card_sub'),
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.white.withOpacity(0.8),
-                        fontSize: 12,
-                      ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildBottomNavigationBar(BuildContext context) {
     return Container(
       color: Theme.of(context).scaffoldBackgroundColor,
@@ -703,6 +696,10 @@ class _HomeScreenState extends State<HomeScreen> {
         child: BottomNavigationBar(
           currentIndex: _currentIndex,
           onTap: (index) {
+            // Retour sur le portefeuille : cartes empilées par défaut
+            if (index == 1 && _currentIndex != 1) {
+              WalletScreen.globalKey.currentState?.collapseCards();
+            }
             setState(() {
               _currentIndex = index;
             });

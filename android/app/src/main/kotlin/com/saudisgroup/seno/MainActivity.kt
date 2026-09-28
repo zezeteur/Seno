@@ -1,7 +1,8 @@
 package com.saudisgroup.seno
 
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity: FlutterActivity() {
+// FlutterFragmentActivity : requis par local_auth (empreinte / visage)
+class MainActivity: FlutterFragmentActivity() {
 }
 
