@@ -50,7 +50,8 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
   bool _hasFace = false;
   bool _hasFingerprint = false;
   bool _authenticating = false;
-  bool _wasInBackground = false;
+  // Demande faite hors premier plan : relancée au retour dans l'app
+  bool _pendingBiometric = false;
 
   String? _pseudo;
   String? _avatarUrl;
@@ -73,9 +74,10 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
     // Retour dans l'app alors qu'elle est verrouillée : nouvelle demande biométrique
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
-      _wasInBackground = true;
-    } else if (state == AppLifecycleState.resumed && _wasInBackground) {
-      _wasInBackground = false;
+      // Prompt resté ouvert : on l'annule pour pouvoir en relancer un au retour
+      if (_authenticating) _localAuth.stopAuthentication();
+      _pendingBiometric = true;
+    } else if (state == AppLifecycleState.resumed && _pendingBiometric) {
       _authenticateBiometric();
     }
   }
@@ -109,6 +111,12 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
         _isTempLocked) {
       return;
     }
+    // Hors premier plan, le système refuse ou bloque le prompt
+    if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+      _pendingBiometric = true;
+      return;
+    }
+    _pendingBiometric = false;
     _authenticating = true;
     try {
       final ok = await _localAuth.authenticate(
@@ -120,6 +128,13 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
       // Annulé, trop d'essais ou capteur verrouillé : saisie du code
     } finally {
       _authenticating = false;
+      // Retour dans l'app pendant l'annulation du prompt précédent
+      if (_pendingBiometric &&
+          mounted &&
+          WidgetsBinding.instance.lifecycleState ==
+              AppLifecycleState.resumed) {
+        _authenticateBiometric();
+      }
     }
   }
 

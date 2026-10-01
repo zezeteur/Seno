@@ -14,6 +14,7 @@ import '../utils/pair_digits_formatter.dart';
 import '../utils/toast_service.dart';
 import '../widgets/photo_viewer.dart';
 import '../widgets/pin_pad.dart';
+import '../widgets/slide_button.dart';
 import '../widgets/user_avatar.dart';
 import 'qr_code_viewer_screen.dart';
 
@@ -33,12 +34,15 @@ class SendMoneyScreen extends StatefulWidget {
 class _SendMoneyScreenState extends State<SendMoneyScreen> {
   // Envoi en cours : bloque le double tap
   bool _sending = false;
+  // Requête d'envoi en cours (avant la redirection opérateur) : loader
+  bool _loading = false;
   // Clé d'idempotence de l'envoi en cours, gardée tant que la requête n'a pas
   // abouti (un renvoi après timeout réutilise la même clé)
   String? _idempotencyKey;
   String? _idempotencyPayload;
   static const int _minAmount = 200;
-  static const int _maxAmount = 1000000;
+  // Plafond par envoi (table plafonds_transfert), revérifié par le serveur
+  int _maxAmount = 1000000;
   static final _phonePattern = RegExp(r'^[\d ]+$');
 
   List<RecentRecipient> get _recents => RecentsStore.recents.value;
@@ -238,6 +242,7 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
     _comptes = SupabaseService.peekComptes() ?? [];
     _loadCompte();
     _loadFeePercent();
+    _loadLimits();
     _loadMyProfile();
     // Dernières copies tout de suite, mise à jour silencieuse en fond
     RecentsStore.phoneContacts.addListener(_onContactsChanged);
@@ -314,6 +319,15 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
       }
     } catch (_) {
       // Hors ligne sans cache : pas d'entrée « Moi-même »
+    }
+  }
+
+  Future<void> _loadLimits() async {
+    try {
+      final limits = await SupabaseService.getAccountLimits();
+      if (mounted) setState(() => _maxAmount = limits.perTransaction);
+    } catch (_) {
+      // Hors ligne sans cache : plafond par défaut
     }
   }
 
@@ -724,6 +738,7 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
     }
 
     ({String id, String redirectUrl}) started;
+    setState(() => _loading = true);
     try {
       started = await SupabaseService.sendMoney(
         idempotencyKey: _idempotencyKey!,
@@ -738,10 +753,15 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
     } catch (e) {
       // Échec définitif côté serveur : la clé est consommée, la prochaine
       // tentative en génère une nouvelle. Erreur réseau : on la garde.
+      final limitExceeded = e is AuthOtpException && e.code == 'limit_exceeded';
       if (e is AuthOtpException && e.code == 'payment_failed') {
         _idempotencyKey = null;
       }
-      if (mounted) ToastService.showError(context, context.tr('send_failed'));
+      if (mounted) {
+        setState(() => _loading = false);
+        ToastService.showError(context,
+            context.tr(limitExceeded ? 'send_limit_exceeded' : 'send_failed'));
+      }
       return;
     }
     _idempotencyKey = null;
@@ -761,6 +781,7 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
   }
 
   void _onBack() {
+    if (_loading) return;
     if (_step == _Step.amount) {
       setState(() => _step = _Step.recipient);
       return;
@@ -1301,11 +1322,15 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
               bold: true),
           const SizedBox(height: 24),
         ],
-        PinKeypad(onDigit: _onDigit, onDelete: _onDelete),
+        IgnorePointer(
+          ignoring: _loading,
+          child: PinKeypad(onDigit: _onDigit, onDelete: _onDelete),
+        ),
         const SizedBox(height: 24),
-        _buildPrimaryButton(
-          label: context.tr('send'),
-          onPressed: !_amountValid || _feePercent == null || _received <= 0
+        SlideButton(
+          label: context.tr('send_slide'),
+          loading: _loading,
+          onConfirmed: !_amountValid || _feePercent == null || _received <= 0
               ? null
               : _submit,
         ),
@@ -1535,10 +1560,16 @@ class _SendProgressPage extends StatefulWidget {
 
 class _SendProgressPageState extends State<_SendProgressPage>
     with WidgetsBindingObserver {
-  static const _pollEvery = Duration(seconds: 3);
+  // Filet de sécurité si le canal Realtime tombe : le statut arrive en direct
+  static const _pollEvery = Duration(seconds: 20);
+  // Paiement jamais validé : on arrête d'attendre
+  static const _waitLimit = Duration(minutes: 10);
 
   String _statut = 'collecte_en_attente';
   Timer? _timer;
+  StreamSubscription<({String id, String statut})>? _events;
+  Timer? _expiry;
+  bool _expired = false;
   bool _polling = false;
 
   bool get _done =>
@@ -1552,13 +1583,50 @@ class _SendProgressPageState extends State<_SendProgressPage>
     SupabaseService.transactionsRevision.value++;
     // Wave / MTN / Moov : validation via l'app ou la page de l'opérateur
     _openPayment();
+    // Canal ouvert par l'accueil, fermé en arrière-plan : on le rouvre ici
+    SupabaseService.subscribeTransactions();
+    _events = SupabaseService.transfertEvents
+        .where((e) => e.id == widget.transfertId)
+        .listen((e) => _apply(e.statut, notify: false));
     _timer = Timer.periodic(_pollEvery, (_) => _poll());
+    _expiry = Timer(_waitLimit, _expire);
+  }
+
+  /// Dernière vérification puis écran d'échec si toujours en attente.
+  /// Le canal Realtime reste ouvert : un paiement tardif s'affiche quand même.
+  Future<void> _expire() async {
+    await _poll();
+    if (!mounted || _statut != 'collecte_en_attente') return;
+    _timer?.cancel();
+    setState(() => _expired = true);
+    HapticFeedback.mediumImpact();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Retour dans l'app après validation : statut tout de suite
-    if (state == AppLifecycleState.resumed) _poll();
+    // Retour dans l'app après validation : réabonnement + statut tout de suite
+    if (state == AppLifecycleState.resumed) {
+      SupabaseService.subscribeTransactions();
+      _poll();
+    }
+  }
+
+  /// [notify] : false quand l'événement Realtime a déjà rechargé l'historique
+  void _apply(String statut, {bool notify = true}) {
+    if (!mounted || _done) return;
+    final changed = statut != _statut;
+    setState(() => _statut = statut);
+    if (statut != 'collecte_en_attente') {
+      _expiry?.cancel();
+      _expired = false;
+    }
+    if (_done) {
+      _timer?.cancel();
+      _events?.cancel();
+      HapticFeedback.mediumImpact();
+    }
+    // Historique de l'accueil à jour (statut changé)
+    if (changed && notify) SupabaseService.transactionsRevision.value++;
   }
 
   Future<void> _openPayment() async {
@@ -1572,17 +1640,7 @@ class _SendProgressPageState extends State<_SendProgressPage>
     if (_polling || _done) return;
     _polling = true;
     try {
-      final statut =
-          await SupabaseService.getTransfertStatus(widget.transfertId);
-      if (!mounted) return;
-      final changed = statut != _statut;
-      setState(() => _statut = statut);
-      if (_done) {
-        _timer?.cancel();
-        HapticFeedback.mediumImpact();
-      }
-      // Historique de l'accueil à jour (statut changé)
-      if (changed) SupabaseService.transactionsRevision.value++;
+      _apply(await SupabaseService.getTransfertStatus(widget.transfertId));
     } catch (_) {
       // Réseau instable : nouvel essai au prochain tick
     } finally {
@@ -1593,6 +1651,8 @@ class _SendProgressPageState extends State<_SendProgressPage>
   @override
   void dispose() {
     _timer?.cancel();
+    _expiry?.cancel();
+    _events?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -1605,6 +1665,10 @@ class _SendProgressPageState extends State<_SendProgressPage>
       'collecte_echec' => (context.tr('send_payment_failed'), null),
       'transfert_echec' => (context.tr('send_payout_failed'), null),
       'transfert_en_cours' => (context.tr('send_processing'), null),
+      _ when _expired => (
+          context.tr('send_expired_title'),
+          context.tr('send_expired_body')
+        ),
       _ => (context.tr('send_waiting_title'), context.tr('send_waiting_body')),
     };
 
@@ -1646,7 +1710,7 @@ class _SendProgressPageState extends State<_SendProgressPage>
             ),
             const Spacer(),
             Center(
-              child: _done
+              child: _done || _expired
                   ? Icon(
                       _statut == 'reussi'
                           ? Icons.check_circle_rounded
@@ -1679,7 +1743,7 @@ class _SendProgressPageState extends State<_SendProgressPage>
               ),
             ],
             const Spacer(),
-            if (_statut == 'collecte_en_attente')
+            if (_statut == 'collecte_en_attente' && !_expired)
               ElevatedButton(
                 onPressed: _openPayment,
                 style: ElevatedButton.styleFrom(
@@ -1697,7 +1761,7 @@ class _SendProgressPageState extends State<_SendProgressPage>
                       fontSize: 16, fontWeight: FontWeight.w600),
                 ),
               ),
-            if (_done) closeButton,
+            if (_done || _expired) closeButton,
           ],
         ),
       ),

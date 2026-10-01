@@ -14,6 +14,7 @@ import 'security_screen.dart';
 import 'notifications_screen.dart';
 import 'help_support_screen.dart';
 import 'profile_screen.dart';
+import 'account_limits_screen.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key});
@@ -301,6 +302,20 @@ class _AccountScreenState extends State<AccountScreen> {
                             Navigator.of(context).push(
                               MaterialPageRoute(
                                 builder: (_) => const SettingsScreen(),
+                              ),
+                            );
+                          },
+                        ),
+                        Divider(
+                            height: 1,
+                            color: AppColors.textSecondary.withOpacity(0.2)),
+                        _buildMenuItem(
+                          icon: HugeIcons.strokeRoundedChartBarLine,
+                          title: context.tr('account_limits'),
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const AccountLimitsScreen(),
                               ),
                             );
                           },

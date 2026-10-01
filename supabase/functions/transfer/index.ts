@@ -4,7 +4,6 @@ import {
 } from '../_shared/jeko.ts';
 
 const MIN_AMOUNT = 200;
-const MAX_AMOUNT = 1_000_000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TRANSFERT_COLUMNS =
   'id, destinataire_label, numero_destination, reseau_destination, montant, frais, total, statut, erreur, created_at';
@@ -31,7 +30,7 @@ Deno.serve(async (req) => {
       if (
         typeof idempotency_key !== 'string' || !UUID_RE.test(idempotency_key) ||
         typeof compte_id !== 'string' || !Number.isInteger(amount) ||
-        amount < MIN_AMOUNT || amount > MAX_AMOUNT || typeof label !== 'string' || !label.trim()
+        amount < MIN_AMOUNT || typeof label !== 'string' || !label.trim()
       ) {
         return json({ error: 'invalid_request' }, 400);
       }
@@ -81,6 +80,23 @@ Deno.serve(async (req) => {
       const montant = sender_pays_fees === false ? amount - fee : amount;
       const total = sender_pays_fees === false ? amount : amount + fee;
       if (montant < 5) return json({ error: 'invalid_request' }, 400);
+
+      // Plafonds (identiques pour tous) : sur le montant reçu par le destinataire, par envoi, cumul du jour et du mois (UTC = heure d'Abidjan)
+      const { data: plafonds, error: plafondsError } = await admin
+        .from('plafonds_transfert').select('par_transaction, journalier, mensuel').eq('id', 1).single();
+      if (plafondsError) throw plafondsError;
+      if (montant > plafonds.par_transaction) return json({ error: 'limit_exceeded', limit: 'transaction' }, 400);
+      const now = new Date();
+      const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+      const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      const { data: sent, error: sentError } = await admin
+        .from('transferts').select('montant, created_at')
+        .eq('expediteur', userId).neq('statut', 'collecte_echec').gte('created_at', monthStart.toISOString());
+      if (sentError) throw sentError;
+      const monthly = sent.reduce((s, t) => s + t.montant, 0);
+      const daily = sent.filter((t) => new Date(t.created_at) >= dayStart).reduce((s, t) => s + t.montant, 0);
+      if (daily + montant > plafonds.journalier) return json({ error: 'limit_exceeded', limit: 'daily' }, 400);
+      if (monthly + montant > plafonds.mensuel) return json({ error: 'limit_exceeded', limit: 'monthly' }, 400);
 
       const { data: row, error } = await admin.from('transferts').insert({
         expediteur: userId,

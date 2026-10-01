@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -269,6 +270,27 @@ class SupabaseService {
         },
         encode: (v) => v,
         decode: (j) => (j as num).toDouble(),
+      );
+
+  /// Plafonds d'envoi, identiques pour tous (table plafonds_transfert, mis en cache)
+  static Future<AccountLimits> getAccountLimits() =>
+      CacheStore.cached<AccountLimits>(
+        name: 'plafonds_transfert',
+        userId: null,
+        fetch: () async {
+          final supabase = client;
+          if (supabase == null) {
+            throw const AuthOtpException('service_unavailable');
+          }
+          final row = await supabase
+              .from('plafonds_transfert')
+              .select('par_transaction, journalier, mensuel')
+              .eq('id', 1)
+              .single();
+          return AccountLimits.fromJson(row);
+        },
+        encode: (v) => v.toJson(),
+        decode: (j) => AccountLimits.fromJson(Map<String, dynamic>.from(j as Map)),
       );
 
   /// Coordonnées du support (table support_contacts)
@@ -866,6 +888,13 @@ class SupabaseService {
 
   static RealtimeChannel? _transactionsChannel;
 
+  static final _transfertEvents =
+      StreamController<({String id, String statut})>.broadcast();
+
+  /// Changements de statut reçus en temps réel (id du transfert + statut)
+  static Stream<({String id, String statut})> get transfertEvents =>
+      _transfertEvents.stream;
+
   /// Écoute le canal privé de l'utilisateur : chaque envoi / réception qui
   /// change de statut recharge l'historique. Une seule connexion à la fois.
   static void subscribeTransactions() {
@@ -881,7 +910,16 @@ class SupabaseService {
         )
         .onBroadcast(
           event: 'transfert',
-          callback: (_) => transactionsRevision.value++,
+          callback: (message) {
+            transactionsRevision.value++;
+            final data = message['payload'] is Map
+                ? message['payload'] as Map
+                : message;
+            final id = data['id'], statut = data['statut'];
+            if (id is String && statut is String) {
+              _transfertEvents.add((id: id, statut: statut));
+            }
+          },
         )
         .subscribe();
   }
@@ -947,6 +985,31 @@ class SendOtpResult {
   final String? debugCode;
 
   const SendOtpResult({this.requiresAccessCode = false, this.debugCode});
+}
+
+/// Plafonds d'envoi en FCFA (montant reçu par le destinataire)
+class AccountLimits {
+  final int perTransaction;
+  final int daily;
+  final int monthly;
+
+  const AccountLimits({
+    required this.perTransaction,
+    required this.daily,
+    required this.monthly,
+  });
+
+  factory AccountLimits.fromJson(Map<String, dynamic> json) => AccountLimits(
+        perTransaction: (json['par_transaction'] as num).toInt(),
+        daily: (json['journalier'] as num).toInt(),
+        monthly: (json['mensuel'] as num).toInt(),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'par_transaction': perTransaction,
+        'journalier': daily,
+        'mensuel': monthly,
+      };
 }
 
 class AuthOtpException implements Exception {
