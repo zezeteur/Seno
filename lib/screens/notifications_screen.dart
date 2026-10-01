@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../l10n/app_strings.dart';
 import 'package:hugeicons/hugeicons.dart';
+import 'package:shimmer/shimmer.dart';
+import '../services/supabase_service.dart';
 import '../theme/app_colors.dart';
 
 class NotificationsScreen extends StatefulWidget {
@@ -11,11 +13,72 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
-  bool _pushNotificationsEnabled = true;
-  bool _emailNotificationsEnabled = false;
-  bool _transactionNotificationsEnabled = true;
-  bool _promotionNotificationsEnabled = false;
-  bool _securityNotificationsEnabled = true;
+  Map<String, bool> _prefs = Map.of(SupabaseService.defaultNotifPrefs);
+  bool _loading = true;
+
+  bool get _pushNotificationsEnabled => _prefs['push']!;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final prefs = await SupabaseService.getNotifPrefs();
+      if (mounted) setState(() => _prefs = Map.of(prefs));
+    } catch (_) {
+      // Pas de réseau ni de cache : valeurs par défaut affichées
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// Bascule optimiste : l'interface change tout de suite, retour arrière si échec
+  Future<void> _toggle(String key, bool value) async {
+    final previous = Map.of(_prefs);
+    setState(() => _prefs = {..._prefs, key: value});
+    try {
+      await SupabaseService.updateNotifPrefs(_prefs);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _prefs = previous);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.tr('network_problem'))),
+      );
+    }
+  }
+
+  /// Les types sont inactifs tant que les notifications push sont coupées
+  ValueChanged<bool>? _onChanged(String key) {
+    if (_loading) return null;
+    if (key != 'push' && !_pushNotificationsEnabled) return null;
+    return (value) => _toggle(key, value);
+  }
+
+  /// Interrupteur, ou son shimmer tant que les préférences chargent
+  Widget _buildSwitch(String key) {
+    if (_loading) {
+      return Shimmer.fromColors(
+        baseColor: Colors.grey.shade300,
+        highlightColor: Colors.grey.shade100,
+        child: Container(
+          width: 52,
+          height: 32,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      );
+    }
+    return Switch(
+      value: _prefs[key]!,
+      onChanged: _onChanged(key),
+      activeColor: AppColors.secondary,
+    );
+  }
 
   Widget _buildMenuItem({
     required dynamic icon,
@@ -122,33 +185,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           icon: HugeIcons.strokeRoundedNotification01,
                           title: context.tr('push_notif'),
                           subtitle: context.tr('push_notif_sub'),
-                          trailing: Switch(
-                            value: _pushNotificationsEnabled,
-                            onChanged: (value) {
-                              setState(() {
-                                _pushNotificationsEnabled = value;
-                              });
-                            },
-                            activeColor: AppColors.secondary,
-                          ),
-                          onTap: null,
-                        ),
-                        Divider(
-                            height: 1,
-                            color: AppColors.textSecondary.withOpacity(0.2)),
-                        _buildMenuItem(
-                          icon: HugeIcons.strokeRoundedMail01,
-                          title: context.tr('email_notif'),
-                          subtitle: context.tr('email_notif_sub'),
-                          trailing: Switch(
-                            value: _emailNotificationsEnabled,
-                            onChanged: (value) {
-                              setState(() {
-                                _emailNotificationsEnabled = value;
-                              });
-                            },
-                            activeColor: AppColors.secondary,
-                          ),
+                          trailing: _buildSwitch('push'),
                           onTap: null,
                         ),
                       ],
@@ -168,15 +205,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           icon: HugeIcons.strokeRoundedCoinsSwap,
                           title: context.tr('transactions'),
                           subtitle: context.tr('transactions_sub'),
-                          trailing: Switch(
-                            value: _transactionNotificationsEnabled,
-                            onChanged: (value) {
-                              setState(() {
-                                _transactionNotificationsEnabled = value;
-                              });
-                            },
-                            activeColor: AppColors.secondary,
-                          ),
+                          trailing: _buildSwitch('transactions'),
                           onTap: null,
                         ),
                         Divider(
@@ -186,15 +215,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           icon: HugeIcons.strokeRoundedShoppingBag01,
                           title: context.tr('promotions'),
                           subtitle: context.tr('promotions_sub'),
-                          trailing: Switch(
-                            value: _promotionNotificationsEnabled,
-                            onChanged: (value) {
-                              setState(() {
-                                _promotionNotificationsEnabled = value;
-                              });
-                            },
-                            activeColor: AppColors.secondary,
-                          ),
+                          trailing: _buildSwitch('promotions'),
                           onTap: null,
                         ),
                         Divider(
@@ -204,15 +225,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           icon: HugeIcons.strokeRoundedLock,
                           title: context.tr('security'),
                           subtitle: context.tr('security_alerts_sub'),
-                          trailing: Switch(
-                            value: _securityNotificationsEnabled,
-                            onChanged: (value) {
-                              setState(() {
-                                _securityNotificationsEnabled = value;
-                              });
-                            },
-                            activeColor: AppColors.secondary,
-                          ),
+                          trailing: _buildSwitch('security'),
                           onTap: null,
                         ),
                       ],

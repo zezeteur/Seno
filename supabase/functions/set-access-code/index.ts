@@ -1,7 +1,6 @@
-import { adminClient, checkAccessCode, corsHeaders, isAccessCode, json } from '../_shared/auth.ts';
+import { adminClient, corsHeaders, hashAccessCode, isAccessCode, json, randomToken } from '../_shared/auth.ts';
 
-// Déverrouillage de l'app : code d'accès de l'utilisateur connecté.
-// En cas de blocage, la session est conservée : l'app reste sur l'écran de verrouillage.
+// Création du code d'accès (une seule fois, par l'utilisateur connecté)
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
@@ -15,12 +14,19 @@ Deno.serve(async (req) => {
     const { code } = await req.json();
     if (!isAccessCode(code)) return json({ error: 'invalid_request' }, 400);
 
-    // Session ouverte : le blocage définitif est possible (déblocage par le support)
-    const denied = await checkAccessCode(admin, auth.user.id, code, true);
-    if (denied) return denied;
+    const salt = randomToken(16);
+    const { error } = await admin.from('access_codes').insert({
+      user_id: auth.user.id,
+      code_hash: await hashAccessCode(code, salt),
+      salt,
+    });
+    // 23505 : un code existe déjà, on ne le remplace pas sans l'ancien
+    if (error?.code === '23505') return json({ error: 'already_set' }, 409);
+    if (error) throw error;
+
     return json({ ok: true });
   } catch (e) {
-    console.error('[unlock-app]', e);
+    console.error('[set-access-code]', e);
     return json({ error: 'server_error' }, 500);
   }
 });

@@ -15,6 +15,7 @@ import 'notifications_screen.dart';
 import 'help_support_screen.dart';
 import 'profile_screen.dart';
 import 'account_limits_screen.dart';
+import 'merchant_request_screen.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key});
@@ -96,6 +97,27 @@ class _AccountScreenState extends State<AccountScreen> {
         }
       }
     }
+  }
+
+  /// Formulaire marchand, sauf si une demande existe déjà
+  Future<void> _handleBecomeMerchant() async {
+    String? status;
+    try {
+      status = await SupabaseService.getMerchantRequestStatus();
+    } catch (_) {
+      // Hors ligne : on laisse le formulaire gérer l'erreur à l'envoi
+    }
+    if (!mounted) return;
+    if (status == 'pending' || status == 'approved') {
+      ToastService.showInfo(
+          context,
+          context.tr(
+              status == 'pending' ? 'merchant_pending' : 'merchant_approved'));
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const MerchantRequestScreen()),
+    );
   }
 
   Widget _buildProfileSection() {
@@ -222,66 +244,76 @@ class _AccountScreenState extends State<AccountScreen> {
                   // Devenir un marchand
                   Stack(
                     children: [
-                      Container(
-                        margin: const EdgeInsets.symmetric(
-                            horizontal: 20, vertical: 8),
+                      Padding(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 20, vertical: 20),
-                        decoration: BoxDecoration(
+                            horizontal: 20, vertical: 8),
+                        child: Material(
                           color: AppColors.secondary,
                           borderRadius: BorderRadius.circular(24),
-                        ),
-                        child: Row(
-                          children: [
-                            const SizedBox(width: 80),
-                            const SizedBox(width: 0),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(24),
+                            onTap: _handleBecomeMerchant,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 20, vertical: 20),
+                              child: Row(
                                 children: [
-                                  Text(
-                                    context.tr('become_merchant'),
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodyLarge
-                                        ?.copyWith(
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.white,
-                                          fontSize: 16,
+                                  const SizedBox(width: 80),
+                                  const SizedBox(width: 0),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          context.tr('become_merchant'),
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodyLarge
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.white,
+                                                fontSize: 16,
+                                              ),
                                         ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          context.tr('accept_payments'),
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall
+                                              ?.copyWith(
+                                                color: Colors.white
+                                                    .withOpacity(0.9),
+                                                fontSize: 12,
+                                              ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    context.tr('accept_payments'),
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodySmall
-                                        ?.copyWith(
-                                          color: Colors.white.withOpacity(0.9),
-                                          fontSize: 12,
-                                        ),
+                                  Icon(
+                                    Icons.arrow_forward_ios,
+                                    color: Colors.white,
+                                    size: 20,
                                   ),
                                 ],
                               ),
                             ),
-                            Icon(
-                              Icons.arrow_forward_ios,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                          ],
+                          ),
                         ),
                       ),
                       Positioned(
                         left: 0,
                         top: -43,
-                        child: Lottie.asset(
-                          'assets/jsons/OpenStore.json',
-                          key: _lottieKey,
-                          width: 150,
-                          height: 150,
-                          fit: BoxFit.contain,
-                          repeat: false,
+                        child: IgnorePointer(
+                          child: Lottie.asset(
+                            'assets/jsons/OpenStore.json',
+                            key: _lottieKey,
+                            width: 150,
+                            height: 150,
+                            fit: BoxFit.contain,
+                            repeat: false,
+                          ),
                         ),
                       ),
                     ],

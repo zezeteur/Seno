@@ -1,14 +1,15 @@
 import {
-  adminClient, corsHeaders, hashAccessCode, hashCode, isAccessCode, issueOtp, json, randomToken, sha256Hex,
-} from './shared.ts';
+  adminClient, checkOtp, corsHeaders, hashAccessCode, isAccessCode, issueOtp, json, otpErrorResponse, randomToken,
+  sha256Hex,
+} from '../_shared/auth.ts';
 
 const RESET_TTL_SECONDS = 15 * 60;
 const MAX_BIRTH_DATE_ATTEMPTS = 3;
-const BIRTH_DATE_LOCK_SECONDS = 24 * 60 * 60;
-const MAX_OTP_ATTEMPTS = 5;
+// Blocage progressif : 15 min, 1 h, 24 h, puis définitif (déblocage par le support)
+const BIRTH_DATE_LOCK_STEPS_SECONDS = [15 * 60, 60 * 60, 24 * 60 * 60];
 
 // Nouveau code d'accès pour l'utilisateur connecté :
-// start (date de naissance → SMS) → verify_otp → set_code
+// [check_birth_date] → start (date de naissance → SMS) → verify_otp → set_code
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
@@ -24,14 +25,15 @@ Deno.serve(async (req) => {
 
     const { data: access } = await admin
       .from('access_codes')
-      .select('permanently_locked, reset_failed_attempts, reset_locked_until')
+      .select('permanently_locked, reset_failed_attempts, reset_locked_until, reset_lock_level')
       .eq('user_id', userId)
       .maybeSingle();
     if (!access) return json({ error: 'unauthorized' }, 401);
     // Blocage définitif : seul le support peut débloquer
     if (access.permanently_locked) return json({ error: 'blocked' }, 403);
 
-    if (body.action === 'start') {
+    // check_birth_date : date seule (aucun SMS) ; start : date puis SMS
+    if (body.action === 'start' || body.action === 'check_birth_date') {
       const lockedMs = access.reset_locked_until
         ? new Date(access.reset_locked_until).getTime() - Date.now()
         : 0;
@@ -50,17 +52,29 @@ Deno.serve(async (req) => {
       if (profile.date_naissance !== body.birth_date) {
         const failed = access.reset_failed_attempts + 1;
         if (failed >= MAX_BIRTH_DATE_ATTEMPTS) {
+          const level = access.reset_lock_level;
+          if (level >= BIRTH_DATE_LOCK_STEPS_SECONDS.length) {
+            await admin.from('access_codes').update({
+              reset_failed_attempts: 0,
+              reset_locked_until: null,
+              permanently_locked: true,
+            }).eq('user_id', userId);
+            return json({ error: 'blocked' }, 403);
+          }
+          const seconds = BIRTH_DATE_LOCK_STEPS_SECONDS[level];
           await admin.from('access_codes').update({
             reset_failed_attempts: 0,
-            reset_locked_until: new Date(Date.now() + BIRTH_DATE_LOCK_SECONDS * 1000).toISOString(),
+            reset_lock_level: level + 1,
+            reset_locked_until: new Date(Date.now() + seconds * 1000).toISOString(),
           }).eq('user_id', userId);
-          return json({ error: 'locked', retry_in: BIRTH_DATE_LOCK_SECONDS }, 429);
+          return json({ error: 'locked', retry_in: seconds }, 429);
         }
         await admin.from('access_codes').update({ reset_failed_attempts: failed }).eq('user_id', userId);
         return json({ error: 'birth_date_invalid', remaining: MAX_BIRTH_DATE_ATTEMPTS - failed }, 400);
       }
 
-      await admin.from('access_codes').update({ reset_failed_attempts: 0 }).eq('user_id', userId);
+      await admin.from('access_codes').update({ reset_failed_attempts: 0, reset_lock_level: 0 }).eq('user_id', userId);
+      if (body.action === 'check_birth_date') return json({ ok: true });
 
       const sms = await issueOtp(admin, profile.phone);
       if (sms.error === 'sms_failed') return json(sms, 502);
@@ -100,23 +114,8 @@ Deno.serve(async (req) => {
       if (typeof body.otp !== 'string' || !/^\d{4}$/.test(body.otp)) {
         return json({ error: 'invalid_request' }, 400);
       }
-      const { data: otp } = await admin
-        .from('phone_otps')
-        .select('code_hash, expires_at, attempts')
-        .eq('phone', reset.phone)
-        .maybeSingle();
-      if (!otp || new Date(otp.expires_at).getTime() < Date.now()) {
-        return json({ error: 'code_expired' }, 400);
-      }
-      if (otp.attempts >= MAX_OTP_ATTEMPTS) {
-        await admin.from('phone_otps').delete().eq('phone', reset.phone);
-        return json({ error: 'too_many_attempts' }, 429);
-      }
-      if (otp.code_hash !== (await hashCode(reset.phone, body.otp))) {
-        await admin.from('phone_otps').update({ attempts: otp.attempts + 1 }).eq('phone', reset.phone);
-        return json({ error: 'code_invalid' }, 400);
-      }
-      await admin.from('phone_otps').delete().eq('phone', reset.phone);
+      const otpError = await checkOtp(admin, reset.phone, body.otp);
+      if (otpError) return otpErrorResponse(otpError);
       await admin.from('access_code_resets').update({ otp_verified: true }).eq('token_hash', tokenHash);
       return json({ ok: true });
     }

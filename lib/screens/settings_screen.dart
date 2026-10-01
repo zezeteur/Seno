@@ -3,6 +3,7 @@ import '../l10n/app_strings.dart';
 import '../widgets/app_bottom_sheet.dart';
 import 'package:provider/provider.dart';
 import 'package:hugeicons/hugeicons.dart';
+import 'package:country_flags/country_flags.dart';
 import '../theme/app_colors.dart';
 import '../providers/theme_provider.dart';
 import '../providers/locale_provider.dart';
@@ -62,6 +63,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  /// Icône d'une option de choix (même style que les entrées du menu)
+  Widget _choiceIcon(dynamic icon) {
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: AppColors.secondary.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Center(
+        child: HugeIcon(icon: icon, size: 20, color: AppColors.secondary),
+      ),
+    );
+  }
+
+  /// Drapeau d'une langue (rond, à la taille des pastilles d'icônes)
+  Widget _choiceFlag(String countryCode) {
+    return CountryFlag.fromCountryCode(
+      countryCode,
+      theme: const ImageTheme(width: 40, height: 40, shape: Circle()),
+    );
+  }
+
   String _getThemeModeText(ThemeMode mode) {
     switch (mode) {
       case ThemeMode.system:
@@ -82,6 +106,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         for (final code in ['fr', 'en']) (code, context.tr('lang_$code'))
       ],
       selected: current,
+      leading: {'fr': _choiceFlag('FR'), 'en': _choiceFlag('GB')},
       onSelected: (value) => localeProvider.setLocale(Locale(value)),
     );
   }
@@ -160,6 +185,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 (ThemeMode.dark, context.tr('theme_dark')),
                               ],
                               selected: themeProvider.themeMode,
+                              leading: {
+                                ThemeMode.system: _choiceIcon(
+                                    HugeIcons.strokeRoundedSmartPhone01),
+                                ThemeMode.light:
+                                    _choiceIcon(HugeIcons.strokeRoundedSun03),
+                                ThemeMode.dark:
+                                    _choiceIcon(HugeIcons.strokeRoundedMoon02),
+                              },
                               onSelected: themeProvider.setThemeMode,
                             );
                           },

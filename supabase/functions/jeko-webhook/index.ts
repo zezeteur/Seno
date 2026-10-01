@@ -21,7 +21,7 @@ Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
 
   const raw = await req.text();
-  const secret = Deno.env.get('JEKO_WEBHOOK_SECRET');
+  const secret = Deno.env.get('JEKO_WEBHOOK_SECRET')?.trim();
   const signature = req.headers.get('Jeko-Signature')?.trim().toLowerCase() ?? '';
   if (!secret || !safeEqual(signature, await hmacHex(secret, raw))) {
     return json({ error: 'invalid_signature' }, 401);

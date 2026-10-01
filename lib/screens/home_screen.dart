@@ -583,7 +583,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         children: [
           for (var i = 0; i < items.length; i++) ...[
             if (i > 0) const SizedBox(width: 10),
-            _buildNavItem(
+            _NavItem(
               icon: items[i].icon,
               label: items[i].label,
               isSelected: _currentIndex == i,
@@ -601,55 +601,116 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  /// Onglet actif : pilule pleine (icône + libellé) ;
-  /// inactif : cercle clair bordé (icône seule)
-  Widget _buildNavItem({
-    required dynamic icon,
-    required String label,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
+}
+
+/// Onglet actif : pilule pleine (icône + libellé) ;
+/// inactif : cercle clair bordé (icône seule).
+/// Transitions animées : largeur, couleurs, libellé et appui.
+class _NavItem extends StatefulWidget {
+  const _NavItem({
+    required this.icon,
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final dynamic icon;
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  State<_NavItem> createState() => _NavItemState();
+}
+
+class _NavItemState extends State<_NavItem> {
+  static const _duration = Duration(milliseconds: 350);
+  static const _curve = Curves.easeOutCubic;
+
+  bool _pressed = false;
+
+  void _setPressed(bool value) {
+    if (_pressed != value) setState(() => _pressed = value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final onSurface = Theme.of(context).colorScheme.onSurface;
     final surface = Theme.of(context).scaffoldBackgroundColor;
-    final fg = isSelected ? surface : onSurface;
+    final selected = widget.isSelected;
+
     return GestureDetector(
-      onTap: onTap,
+      onTap: widget.onTap,
+      onTapDown: (_) => _setPressed(true),
+      onTapUp: (_) => _setPressed(false),
+      onTapCancel: () => _setPressed(false),
       behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOutCubic,
-        height: 56,
-        padding: EdgeInsets.symmetric(horizontal: isSelected ? 22 : 16),
-        decoration: BoxDecoration(
-          color: isSelected ? onSurface : surface,
-          borderRadius: BorderRadius.circular(28),
-          border: Border.all(color: onSurface, width: 2),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.15),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                ]
-              : null,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            HugeIcon(icon: icon, size: 22, color: fg),
-            if (isSelected) ...[
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: TextStyle(
-                  color: fg,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                ),
+      child: AnimatedScale(
+        scale: _pressed ? 0.92 : 1,
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOut,
+        child: AnimatedContainer(
+          duration: _duration,
+          curve: _curve,
+          height: 56,
+          padding: EdgeInsets.symmetric(horizontal: selected ? 22 : 16),
+          decoration: BoxDecoration(
+            color: selected ? onSurface : surface,
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: onSurface, width: 2),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: selected ? 0.15 : 0),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
               ),
             ],
-          ],
+          ),
+          // Couleur de l'icône / du texte en fondu
+          child: TweenAnimationBuilder<Color?>(
+            tween: ColorTween(end: selected ? surface : onSurface),
+            duration: _duration,
+            curve: _curve,
+            builder: (context, fg, _) => Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AnimatedScale(
+                  scale: selected ? 1.08 : 1,
+                  duration: _duration,
+                  curve: Curves.easeOutBack,
+                  child: HugeIcon(icon: widget.icon, size: 22, color: fg),
+                ),
+                // Libellé : la largeur s'ouvre/se ferme en douceur
+                ClipRect(
+                  child: AnimatedSize(
+                    duration: _duration,
+                    curve: _curve,
+                    alignment: Alignment.centerLeft,
+                    child: AnimatedOpacity(
+                      opacity: selected ? 1 : 0,
+                      duration: _duration,
+                      curve: _curve,
+                      child: selected
+                          ? Padding(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: Text(
+                                widget.label,
+                                maxLines: 1,
+                                softWrap: false,
+                                style: TextStyle(
+                                  color: fg,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            )
+                          : const SizedBox.shrink(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

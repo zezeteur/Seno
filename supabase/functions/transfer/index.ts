@@ -125,8 +125,8 @@ Deno.serve(async (req) => {
         }
         return json({ id: row.id, redirect_url: payment.redirectUrl });
       } catch (e) {
-        // Code Jèko, ou secret manquant / mal formé (missing_env_…, invalid_env_…)
-        const reason = e instanceof JekoError ? e.code : (e as Error).message;
+        // Code Jèko pour l'app ; le détail interne (missing_env_…, invalid_env_…) reste dans les logs
+        const reason = e instanceof JekoError ? e.code : 'payment_unavailable';
         console.error('jeko payment request', e);
         await setStatus(admin, row.id, { statut: 'collecte_echec', erreur: reason });
         return json({ error: 'payment_failed', reason }, 502);
@@ -137,7 +137,7 @@ Deno.serve(async (req) => {
       if (typeof body.id !== 'string') return json({ error: 'invalid_request' }, 400);
       const read = () =>
         admin.from('transferts')
-          .select(`${TRANSFERT_COLUMNS}, jeko_payment_id, jeko_transfer_id`)
+          .select(`${TRANSFERT_COLUMNS}, jeko_payment_id, jeko_transfer_id, dest:compte_destination(proprietaire)`)
           .eq('id', body.id).eq('expediteur', userId).maybeSingle();
       let { data: t } = await read();
       if (!t) return json({ error: 'not_found' }, 404);
@@ -155,7 +155,13 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error('jeko status poll', e);
       }
-      const { jeko_payment_id: _p, jeko_transfer_id: _t, ...publicRow } = t!;
+      const { jeko_payment_id: _p, jeko_transfer_id: _t, dest, ...publicRow } = t!;
+      // Compte Seno d'un autre utilisateur : numéro masqué (07 •• •• 45 67), comme l'historique
+      const owner = (dest as unknown as { proprietaire: string } | null)?.proprietaire;
+      if (owner && owner !== userId) {
+        const n = publicRow.numero_destination;
+        publicRow.numero_destination = `${n.slice(0, 2)} •• •• ${n.slice(6, 8)} ${n.slice(8, 10)}`;
+      }
       return json(publicRow);
     }
 

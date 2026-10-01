@@ -32,7 +32,9 @@ const b64url = (bytes: Uint8Array) =>
 let aesKey: CryptoKey | null = null;
 async function key(): Promise<CryptoKey> {
   if (aesKey) return aesKey;
-  const secret = Deno.env.get('QR_SECRET') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+  // Secret dédié obligatoire : jamais la clé service role en repli
+  const secret = Deno.env.get('QR_SECRET')?.trim();
+  if (!secret || secret.length < 32) throw new Error('missing_env_QR_SECRET');
   const raw = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`seno-qr-v1:${secret}`));
   aesKey = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']);
   return aesKey;

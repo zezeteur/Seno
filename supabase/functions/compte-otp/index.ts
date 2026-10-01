@@ -1,7 +1,8 @@
-import { adminClient, corsHeaders, hashCode, issueOtp, json, randomToken, sha256Hex } from './shared.ts';
+import {
+  adminClient, checkOtp, corsHeaders, issueOtp, json, otpErrorResponse, randomToken, sha256Hex,
+} from '../_shared/auth.ts';
 
 const VERIFICATION_TTL_SECONDS = 10 * 60;
-const MAX_OTP_ATTEMPTS = 5;
 const COMPTE_COLUMNS = 'id, proprietaire, numero, id_reseau, created_at, updated_at';
 
 // Ajout ou modification d'un compte mobile money :
@@ -84,20 +85,8 @@ Deno.serve(async (req) => {
       if (typeof body.otp !== 'string' || !/^\d{4}$/.test(body.otp)) {
         return json({ error: 'invalid_request' }, 400);
       }
-      const { data: otp } = await admin
-        .from('phone_otps').select('code_hash, expires_at, attempts').eq('phone', phone).maybeSingle();
-      if (!otp || new Date(otp.expires_at).getTime() < Date.now()) {
-        return json({ error: 'code_expired' }, 400);
-      }
-      if (otp.attempts >= MAX_OTP_ATTEMPTS) {
-        await admin.from('phone_otps').delete().eq('phone', phone);
-        return json({ error: 'too_many_attempts' }, 429);
-      }
-      if (otp.code_hash !== (await hashCode(phone, body.otp))) {
-        await admin.from('phone_otps').update({ attempts: otp.attempts + 1 }).eq('phone', phone);
-        return json({ error: 'code_invalid' }, 400);
-      }
-      await admin.from('phone_otps').delete().eq('phone', phone);
+      const otpError = await checkOtp(admin, phone, body.otp);
+      if (otpError) return otpErrorResponse(otpError);
 
       // Modification (compte_id) ou création
       const { data: compte, error } = verif.compte_id

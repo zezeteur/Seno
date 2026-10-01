@@ -116,6 +116,7 @@ Future<void> showChoiceSheet<T>({
   required List<(T, String)> options,
   required T selected,
   required ValueChanged<T> onSelected,
+  Map<T, Widget>? leading,
 }) {
   return showAppBottomSheet<void>(
     context: context,
@@ -126,6 +127,7 @@ Future<void> showChoiceSheet<T>({
         for (final (value, label) in options)
           ListTile(
             contentPadding: EdgeInsets.zero,
+            leading: leading?[value],
             title: Text(label),
             trailing: value == selected
                 ? Icon(Icons.check,

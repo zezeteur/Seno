@@ -176,8 +176,13 @@ async function onPaymentSucceeded(admin: SupabaseClient, id: string): Promise<vo
       ...(transfer.status === 'error' ? { statut: 'transfert_echec' } : {}),
     });
   } catch (e) {
-    // Fonds collectés mais non reversés : reste visible pour traitement manuel
-    await setStatus(admin, id, { statut: 'transfert_echec', erreur: (e as Error).message });
+    // Fonds collectés mais non reversés : reste visible pour traitement manuel.
+    // `erreur` est renvoyée à l'app : code Jèko seulement, le détail reste dans les logs.
+    console.error('jeko transfer', id, e);
+    await setStatus(admin, id, {
+      statut: 'transfert_echec',
+      erreur: e instanceof JekoError ? e.code : 'transfer_unavailable',
+    });
   }
 }
 

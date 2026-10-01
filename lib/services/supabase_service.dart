@@ -131,6 +131,16 @@ class SupabaseService {
     return (token: res['token'] as String, phone: res['phone'] as String);
   }
 
+  /// Vérifie seulement la date de naissance (aucun SMS, même blocage 3 essais)
+  static Future<void> checkBirthDate(DateTime birthDate) async {
+    final d = birthDate;
+    await _invokeAuth('reset-access-code', {
+      'action': 'check_birth_date',
+      'birth_date': '${d.year.toString().padLeft(4, '0')}-'
+          '${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}',
+    });
+  }
+
   static Future<void> resendAccessCodeResetOtp(String token) async {
     await _invokeAuth(
         'reset-access-code', {'action': 'resend', 'token': token});
@@ -414,6 +424,40 @@ class SupabaseService {
     });
   }
 
+  /// Statut de la demande marchand (pending / approved / rejected), ou null
+  static Future<String?> getMerchantRequestStatus() async {
+    final supabase = client!;
+    final row = await supabase
+        .from('merchant_requests')
+        .select('status')
+        .eq('user_id', supabase.auth.currentUser!.id)
+        .maybeSingle();
+    return row?['status'] as String?;
+  }
+
+  /// Envoie la demande pour devenir marchand
+  static Future<void> submitMerchantRequest({
+    required String businessName,
+    required String category,
+    String? description,
+    required String city,
+    required String address,
+    required String businessPhone,
+    String? email,
+  }) async {
+    final supabase = client!;
+    await supabase.from('merchant_requests').insert({
+      'user_id': supabase.auth.currentUser!.id,
+      'business_name': businessName,
+      'category': category,
+      'description': description,
+      'city': city,
+      'address': address,
+      'business_phone': businessPhone,
+      'email': email,
+    });
+  }
+
   /// Date de naissance de l'utilisateur connecté
   static Future<DateTime?> getBirthDate() async {
     final supabase = client!;
@@ -424,6 +468,55 @@ class SupabaseService {
         .maybeSingle();
     final value = row?['date_naissance'] as String?;
     return value == null ? null : DateTime.tryParse(value);
+  }
+
+  /// Préférences de notifications par défaut (identiques à la colonne SQL)
+  static const defaultNotifPrefs = {
+    'push': true,
+    'transactions': true,
+    'promotions': false,
+    'security': true,
+  };
+
+  static Map<String, bool> _decodeNotifPrefs(Object? json) => {
+        ...defaultNotifPrefs,
+        if (json is Map)
+          for (final e in json.entries)
+            if (e.value is bool) e.key as String: e.value as bool,
+      };
+
+  /// Préférences de notifications (copie locale si hors ligne)
+  static Future<Map<String, bool>> getNotifPrefs() =>
+      CacheStore.cached<Map<String, bool>>(
+        name: 'notif_prefs',
+        userId: client?.auth.currentUser?.id,
+        fetch: _getNotifPrefsRemote,
+        encode: (v) => v,
+        decode: _decodeNotifPrefs,
+      );
+
+  static Future<Map<String, bool>> _getNotifPrefsRemote() async {
+    final supabase = client!;
+    final row = await supabase
+        .from('profiles')
+        .select('notif_prefs')
+        .eq('id', supabase.auth.currentUser!.id)
+        .maybeSingle();
+    return _decodeNotifPrefs(row?['notif_prefs']);
+  }
+
+  /// Enregistre les préférences de notifications
+  static Future<void> updateNotifPrefs(Map<String, bool> prefs) async {
+    final supabase = client!;
+    final userId = supabase.auth.currentUser!.id;
+    final rows = await supabase
+        .from('profiles')
+        .update({'notif_prefs': prefs})
+        .eq('id', userId)
+        .select('id');
+    // Aucune ligne modifiée : refusé par la RLS (pas d'erreur renvoyée)
+    if (rows.isEmpty) throw const AuthOtpException('profile_update_denied');
+    await CacheStore.remove(userId, 'notif_prefs');
   }
 
   /// Délai de changement de pseudo : 1 fois tous les 7 jours

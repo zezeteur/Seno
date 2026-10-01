@@ -1,7 +1,7 @@
 import {
-  ACCESS_CODE_COLUMNS, AccessCodeRow, adminClient, corsHeaders, findUserId, hashAccessCode, isAccessCode,
-  issueOtp, json, lockResponse, normalizePhone, randomToken, registerFailedAttempt, resetAccessLock, sha256Hex,
-} from './shared.ts';
+  adminClient, checkAccessCode, corsHeaders, findUserId, isAccessCode, issueOtp, json, normalizePhone, randomToken,
+  sha256Hex,
+} from '../_shared/auth.ts';
 
 const TICKET_TTL_SECONDS = 600;
 
@@ -17,25 +17,12 @@ Deno.serve(async (req) => {
 
     const admin = adminClient();
     const userId = await findUserId(admin, phone);
-    const { data } = userId
-      ? await admin
-          .from('access_codes')
-          .select(ACCESS_CODE_COLUMNS)
-          .eq('user_id', userId)
-          .maybeSingle()
-      : { data: null };
-    if (!userId || !data) return json({ error: 'access_code_invalid' }, 400);
-    const access = data as AccessCodeRow;
+    if (!userId) return json({ error: 'access_code_invalid' }, 400);
 
-    // Même blocage que l'écran de verrouillage : se déconnecter ne le contourne pas
-    const locked = lockResponse(access);
-    if (locked) return locked;
-
-    if (access.code_hash !== (await hashAccessCode(code, access.salt))) {
-      return registerFailedAttempt(admin, userId, access);
-    }
-
-    await resetAccessLock(admin, userId);
+    // Même blocage que l'écran de verrouillage : se déconnecter ne le contourne pas.
+    // Jamais de blocage définitif ici : il suffirait du numéro pour bloquer un compte.
+    const denied = await checkAccessCode(admin, userId, code, false);
+    if (denied) return denied;
 
     const ticket = randomToken();
     const { error } = await admin.from('login_tickets').insert({

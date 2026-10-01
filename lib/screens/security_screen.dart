@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../l10n/app_strings.dart';
 import 'package:hugeicons/hugeicons.dart';
 import '../theme/app_colors.dart';
+import 'change_access_code_screen.dart';
 
 class SecurityScreen extends StatefulWidget {
   const SecurityScreen({super.key});
@@ -11,7 +12,6 @@ class SecurityScreen extends StatefulWidget {
 }
 
 class _SecurityScreenState extends State<SecurityScreen> {
-  bool _biometricEnabled = false;
 
   Widget _buildMenuItem({
     required dynamic icon,
@@ -104,34 +104,6 @@ class _SecurityScreenState extends State<SecurityScreen> {
                       ],
                     ),
                   ),
-                  // Authentification
-                  Container(
-                    margin:
-                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surface,
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                    child: Column(
-                      children: [
-                        _buildMenuItem(
-                          icon: HugeIcons.strokeRoundedAiScan,
-                          title: context.tr('biometric'),
-                          subtitle: context.tr('biometric_sub'),
-                          trailing: Switch(
-                            value: _biometricEnabled,
-                            onChanged: (value) {
-                              setState(() {
-                                _biometricEnabled = value;
-                              });
-                            },
-                            activeColor: AppColors.secondary,
-                          ),
-                          onTap: null,
-                        ),
-                      ],
-                    ),
-                  ),
                   // Mot de passe
                   Container(
                     margin:
@@ -150,9 +122,12 @@ class _SecurityScreenState extends State<SecurityScreen> {
                             Icons.chevron_right,
                             color: AppColors.textSecondary,
                           ),
-                          onTap: () {
-                            // Fonctionnalité à venir
-                          },
+                          // Code actuel → nouveau code → confirmation
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const ChangeAccessCodeScreen(),
+                            ),
+                          ),
                         ),
                       ],
                     ),

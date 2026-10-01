@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -47,6 +48,77 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen>
   bool _sharing = false;
 
   SenoTransaction get _tx => widget.transaction;
+
+  static const _decoIconSet = [
+    Icons.account_balance,
+    Icons.account_balance_wallet,
+    Icons.credit_card,
+    Icons.payment,
+    Icons.attach_money,
+    Icons.monetization_on,
+    Icons.savings,
+    Icons.wallet,
+    Icons.receipt,
+    Icons.point_of_sale,
+    Icons.currency_exchange,
+    Icons.trending_up,
+    Icons.show_chart,
+    Icons.pie_chart,
+  ];
+
+  /// Icônes de déco : au plus une par case d'une grille 4 × 8, position
+  /// aléatoire dans la case (pas de chevauchement), tirées une fois par écran
+  final List<
+      ({
+        IconData icon,
+        double left,
+        double top,
+        double size,
+        double opacity,
+        double angle
+      })> _decoIcons = () {
+    final random = math.Random();
+    const cols = 4, rows = 8;
+    return [
+      for (var row = 0; row < rows; row++)
+        for (var col = 0; col < cols; col++)
+          if (random.nextDouble() < 0.6)
+            (
+              icon: _decoIconSet[random.nextInt(_decoIconSet.length)],
+              left: (col + 0.15 + random.nextDouble() * 0.5) / cols,
+              top: (row + 0.15 + random.nextDouble() * 0.5) / rows,
+              size: 16 + random.nextDouble() * 18,
+              opacity: 0.04 + random.nextDouble() * 0.06,
+              angle: random.nextDouble() * 2 * math.pi,
+            ),
+    ];
+  }();
+
+  Widget _buildDecoIcons(Color color) {
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: LayoutBuilder(
+          builder: (context, constraints) => Stack(
+            children: [
+              for (final d in _decoIcons)
+                Positioned(
+                  left: d.left * constraints.maxWidth,
+                  top: d.top * constraints.maxHeight,
+                  child: Transform.rotate(
+                    angle: d.angle,
+                    child: Icon(
+                      d.icon,
+                      size: d.size,
+                      color: color.withValues(alpha: d.opacity),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   /// Capture la zone du reçu en PNG et ouvre le partage système
   Future<void> _shareReceipt() async {
@@ -332,150 +404,163 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen>
                     child: Container(
                       color: Theme.of(context).scaffoldBackgroundColor,
                       padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: Column(
+                      child: Stack(
                         children: [
-                          // Autre partie, montant et statut
-                          UserAvatar(
-                            pseudo: title,
-                            avatarUrl: _tx.avatarUrl,
-                            radius: 36,
-                            backgroundColor: AppColors.secondary,
-                            foregroundColor: Colors.white,
-                          ),
-                          const SizedBox(height: 12),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            child: Text(
-                              title,
-                              textAlign: TextAlign.center,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: textTheme.titleMedium?.copyWith(
-                                color: onSurface,
-                                fontWeight: FontWeight.w600,
+                          _buildDecoIcons(onSurface),
+                          Column(
+                            children: [
+                              // Autre partie, montant et statut
+                              UserAvatar(
+                                pseudo: title,
+                                avatarUrl: _tx.avatarUrl,
+                                radius: 36,
+                                backgroundColor: AppColors.secondary,
+                                foregroundColor: Colors.white,
                               ),
-                            ),
-                          ),
-                          if (widget.contactName != null)
-                            Text(
-                              handle,
-                              style: textTheme.bodySmall?.copyWith(
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                          const SizedBox(height: 8),
-                          Text(
-                            '$sign ${_fcfa(_tx.montant)}',
-                            style: textTheme.headlineMedium?.copyWith(
-                              color: _isFailed
-                                  ? onSurface.withValues(alpha: 0.35)
-                                  : _tx.isReceived
-                                      ? AppColors.success
-                                      : onSurface,
-                              decoration:
-                                  _isFailed ? TextDecoration.lineThrough : null,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: status.color.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(50),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                HugeIcon(
-                                    icon: status.icon,
-                                    size: 16,
-                                    color: status.color),
-                                const SizedBox(width: 6),
-                                Text(
-                                  status.label,
-                                  style: textTheme.bodySmall?.copyWith(
-                                    color: status.color,
+                              const SizedBox(height: 12),
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 20),
+                                child: Text(
+                                  title,
+                                  textAlign: TextAlign.center,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: textTheme.titleMedium?.copyWith(
+                                    color: onSurface,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-
-                          // Fonds collectés mais reversement échoué : orienter vers le support
-                          if (_statut == 'transfert_echec' && !_tx.isReceived)
-                            Container(
-                              margin: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: Colors.redAccent.withValues(alpha: 0.08),
-                                borderRadius: BorderRadius.circular(16),
                               ),
-                              child: Text(
-                                context.tr('tx_payout_failed_help'),
-                                style: textTheme.bodySmall?.copyWith(
-                                  color: Colors.redAccent,
-                                  height: 1.4,
+                              if (widget.contactName != null)
+                                Text(
+                                  handle,
+                                  style: textTheme.bodySmall?.copyWith(
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              const SizedBox(height: 8),
+                              Text(
+                                '$sign ${_fcfa(_tx.montant)}',
+                                style: textTheme.headlineMedium?.copyWith(
+                                  color: _isFailed
+                                      ? onSurface.withValues(alpha: 0.35)
+                                      : _tx.isReceived
+                                          ? AppColors.success
+                                          : onSurface,
+                                  decoration: _isFailed
+                                      ? TextDecoration.lineThrough
+                                      : null,
+                                  fontWeight: FontWeight.bold,
                                 ),
                               ),
-                            ),
+                              const SizedBox(height: 12),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: status.color.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(50),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    HugeIcon(
+                                        icon: status.icon,
+                                        size: 16,
+                                        color: status.color),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      status.label,
+                                      style: textTheme.bodySmall?.copyWith(
+                                        color: status.color,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 24),
 
-                          _card(context, [
-                            _row(
-                              context,
-                              context.tr(_tx.isReceived ? 'tx_from' : 'tx_to'),
-                              widget.contactName != null && !_isPhoneLabel
-                                  ? '$title · $handle'
-                                  : title,
-                            ),
-                            _row(context, context.tr('tx_number'), _numero),
-                            if (_reseau != null)
-                              _row(context, context.tr('tx_network'),
-                                  _reseau!.nom),
-                          ]),
+                              // Fonds collectés mais reversement échoué : orienter vers le support
+                              if (_statut == 'transfert_echec' &&
+                                  !_tx.isReceived)
+                                Container(
+                                  margin:
+                                      const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    color: Colors.redAccent
+                                        .withValues(alpha: 0.08),
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: Text(
+                                    context.tr('tx_payout_failed_help'),
+                                    style: textTheme.bodySmall?.copyWith(
+                                      color: Colors.redAccent,
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                ),
 
-                          _card(context, [
-                            if (_tx.isReceived)
-                              _row(context, context.tr('tx_amount_received'),
-                                  _fcfa(_tx.montantRecu),
-                                  bold: true)
-                            else ...[
-                              _row(context, context.tr('tx_amount_sent'),
-                                  _fcfa(_tx.montantRecu)),
-                              _row(context, context.tr('tx_fees'),
-                                  _fcfa(_tx.frais)),
-                              _row(context, context.tr('tx_total_debited'),
-                                  _fcfa(_tx.montant),
-                                  bold: true),
+                              _card(context, [
+                                _row(
+                                  context,
+                                  context
+                                      .tr(_tx.isReceived ? 'tx_from' : 'tx_to'),
+                                  widget.contactName != null && !_isPhoneLabel
+                                      ? '$title · $handle'
+                                      : title,
+                                ),
+                                _row(context, context.tr('tx_number'), _numero),
+                                if (_reseau != null)
+                                  _row(context, context.tr('tx_network'),
+                                      _reseau!.nom),
+                              ]),
+
+                              _card(context, [
+                                if (_tx.isReceived)
+                                  _row(
+                                      context,
+                                      context.tr('tx_amount_received'),
+                                      _fcfa(_tx.montantRecu),
+                                      bold: true)
+                                else ...[
+                                  _row(context, context.tr('tx_amount_sent'),
+                                      _fcfa(_tx.montantRecu)),
+                                  _row(context, context.tr('tx_fees'),
+                                      _fcfa(_tx.frais)),
+                                  _row(context, context.tr('tx_total_debited'),
+                                      _fcfa(_tx.montant),
+                                      bold: true),
+                                ],
+                              ]),
+
+                              _card(context, [
+                                _row(context, context.tr('tx_date'),
+                                    _date(_tx.createdAt)),
+                                _row(
+                                  context,
+                                  context.tr('tx_reference'),
+                                  _tx.id.split('-').first.toUpperCase(),
+                                  trailing: GestureDetector(
+                                    onTap: _copyReference,
+                                    child: const HugeIcon(
+                                      icon: HugeIcons.strokeRoundedCopy01,
+                                      size: 18,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ),
+                              ]),
+
+                              // Signature du reçu
+                              const SizedBox(height: 8),
+                              Image.asset(
+                                'assets/images/seno-logo.png',
+                                height: 24,
+                              ),
                             ],
-                          ]),
-
-                          _card(context, [
-                            _row(context, context.tr('tx_date'),
-                                _date(_tx.createdAt)),
-                            _row(
-                              context,
-                              context.tr('tx_reference'),
-                              _tx.id.split('-').first.toUpperCase(),
-                              trailing: GestureDetector(
-                                onTap: _copyReference,
-                                child: const HugeIcon(
-                                  icon: HugeIcons.strokeRoundedCopy01,
-                                  size: 18,
-                                  color: AppColors.textSecondary,
-                                ),
-                              ),
-                            ),
-                          ]),
-
-                          // Signature du reçu
-                          const SizedBox(height: 8),
-                          Image.asset(
-                            'assets/images/seno-logo.png',
-                            height: 24,
                           ),
                         ],
                       ),
