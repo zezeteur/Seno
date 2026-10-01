@@ -81,36 +81,21 @@ Deno.serve(async (req) => {
       const total = sender_pays_fees === false ? amount : amount + fee;
       if (montant < 5) return json({ error: 'invalid_request' }, 400);
 
-      // Plafonds (identiques pour tous) : sur le montant reçu par le destinataire, par envoi, cumul du jour et du mois (UTC = heure d'Abidjan)
-      const { data: plafonds, error: plafondsError } = await admin
-        .from('plafonds_transfert').select('par_transaction, journalier, mensuel').eq('id', 1).single();
-      if (plafondsError) throw plafondsError;
-      if (montant > plafonds.par_transaction) return json({ error: 'limit_exceeded', limit: 'transaction' }, 400);
-      const now = new Date();
-      const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-      const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-      const { data: sent, error: sentError } = await admin
-        .from('transferts').select('montant, created_at')
-        .eq('expediteur', userId).neq('statut', 'collecte_echec').gte('created_at', monthStart.toISOString());
-      if (sentError) throw sentError;
-      const monthly = sent.reduce((s, t) => s + t.montant, 0);
-      const daily = sent.filter((t) => new Date(t.created_at) >= dayStart).reduce((s, t) => s + t.montant, 0);
-      if (daily + montant > plafonds.journalier) return json({ error: 'limit_exceeded', limit: 'daily' }, 400);
-      if (monthly + montant > plafonds.mensuel) return json({ error: 'limit_exceeded', limit: 'monthly' }, 400);
-
-      const { data: row, error } = await admin.from('transferts').insert({
-        expediteur: userId,
-        compte_source: source.id,
-        numero_source: source.numero,
-        compte_destination: dest.compte,
-        destinataire_label: label.trim().slice(0, 100),
-        numero_destination: dest.numero,
-        reseau_destination: dest.reseau,
-        montant,
-        frais: fee,
-        total,
-        idempotency_key,
-      }).select('id').single();
+      // Plafonds (identiques pour tous, sur le montant reçu) vérifiés et envoi créé
+      // dans la même transaction, sous verrou par expéditeur
+      const { data: created, error } = await admin.rpc('insert_transfert_plafonne', {
+        p_expediteur: userId,
+        p_compte_source: source.id,
+        p_numero_source: source.numero,
+        p_compte_destination: dest.compte,
+        p_destinataire_label: label.trim().slice(0, 100),
+        p_numero_destination: dest.numero,
+        p_reseau_destination: dest.reseau,
+        p_montant: montant,
+        p_frais: fee,
+        p_total: total,
+        p_idempotency_key: idempotency_key,
+      });
       if (error) {
         // Requête concurrente avec la même clé : elle a gagné l'insertion
         if (error.code === '23505') {
@@ -119,6 +104,8 @@ Deno.serve(async (req) => {
         }
         throw error;
       }
+      if (created.error) return json({ error: created.error, limit: created.limit }, 400);
+      const row = { id: created.id as string };
 
       try {
         const payment = await createPaymentRequest({
