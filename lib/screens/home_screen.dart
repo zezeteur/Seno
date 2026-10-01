@@ -144,11 +144,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final mediaQuery = MediaQuery.of(context);
-    final bottomPadding = mediaQuery.viewPadding.bottom;
-
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      // Navbar flottante : le contenu passe derrière
+      extendBody: true,
       body: IndexedStack(
         index: _currentIndex,
         children: [
@@ -158,16 +157,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           const AccountScreen(),
         ],
       ),
+      // Fond en dégradé (transparent en haut) : pas de cassure avec la page
       bottomNavigationBar: Container(
-        padding: EdgeInsets.only(bottom: bottomPadding),
-        child: _buildBottomNavigationBar(context),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Theme.of(context).scaffoldBackgroundColor.withValues(alpha: 0),
+              Theme.of(context).scaffoldBackgroundColor.withValues(alpha: 0.7),
+            ],
+          ),
+        ),
+        // Zone sûre en bas (barre système), avec un minimum sans encoche
+        child: SafeArea(
+          top: false,
+          minimum: const EdgeInsets.only(bottom: 12),
+          child: _buildBottomNavigationBar(context),
+        ),
       ),
     );
   }
 
   Widget _buildHomeContent() {
-    final mediaQuery = MediaQuery.of(context);
-    final bottomPadding = mediaQuery.viewPadding.bottom;
+    // Navbar flottante : barre système + bouton (56) + marges (8 + 32)
+    final bottomPadding = MediaQuery.viewPaddingOf(context).bottom + 96;
 
     return SingleChildScrollView(
       child: Column(
@@ -177,8 +191,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
           // Dernières transactions + accès à l'historique
           _buildTransactionsSection(context),
-          // SafeArea en bas
-          SizedBox(height: bottomPadding),
+          // Fin de page : rien n'est caché derrière la navbar
+          SizedBox(height: bottomPadding + 40),
         ],
       ),
     );
@@ -538,96 +552,88 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildBottomNavigationBar(BuildContext context) {
-    return Container(
-      color: Theme.of(context).scaffoldBackgroundColor,
-      child: Theme(
-        data: Theme.of(context).copyWith(
-          splashFactory: NoSplash.splashFactory,
-          highlightColor: Colors.transparent,
-        ),
-        child: BottomNavigationBar(
-          currentIndex: _currentIndex,
-          onTap: (index) {
-            // Retour sur le portefeuille : cartes empilées par défaut
-            if (index == 1 && _currentIndex != 1) {
-              WalletScreen.globalKey.currentState?.collapseCards();
-            }
-            setState(() {
-              _currentIndex = index;
-            });
-          },
-          type: BottomNavigationBarType.fixed,
-          elevation: 0,
-          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-          selectedItemColor: Theme.of(context).colorScheme.onSurface,
-          unselectedItemColor:
-              Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
-          selectedFontSize: 14,
-          unselectedFontSize: 12,
-          items: [
-            BottomNavigationBarItem(
-              icon: _buildNavIcon(
-                icon: HugeIcons.strokeRoundedHome01,
-                isSelected: _currentIndex == 0,
-              ),
-              label: context.tr('nav_home'),
-            ),
-            BottomNavigationBarItem(
-              icon: _buildNavIcon(
-                icon: HugeIcons.strokeRoundedWallet01,
-                isSelected: _currentIndex == 1,
-              ),
-              label: context.tr('nav_wallet'),
-            ),
-            BottomNavigationBarItem(
-              icon: _buildNavIcon(
-                icon: HugeIcons.strokeRoundedChart01,
-                isSelected: _currentIndex == 2,
-              ),
-              label: context.tr('nav_stats'),
-            ),
-            BottomNavigationBarItem(
-              icon: _buildNavIcon(
-                icon: HugeIcons.strokeRoundedAiUser,
-                isSelected: _currentIndex == 3,
-              ),
-              label: context.tr('nav_account'),
+    final items = [
+      (icon: HugeIcons.strokeRoundedHome01, label: context.tr('nav_home')),
+      (icon: HugeIcons.strokeRoundedWallet01, label: context.tr('nav_wallet')),
+      (icon: HugeIcons.strokeRoundedChart01, label: context.tr('nav_stats')),
+      (icon: HugeIcons.strokeRoundedAiUser, label: context.tr('nav_account')),
+    ];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          for (var i = 0; i < items.length; i++) ...[
+            if (i > 0) const SizedBox(width: 10),
+            _buildNavItem(
+              icon: items[i].icon,
+              label: items[i].label,
+              isSelected: _currentIndex == i,
+              onTap: () {
+                // Retour sur le portefeuille : cartes empilées par défaut
+                if (i == 1 && _currentIndex != 1) {
+                  WalletScreen.globalKey.currentState?.collapseCards();
+                }
+                setState(() => _currentIndex = i);
+              },
             ),
           ],
-        ),
+        ],
       ),
     );
   }
 
-  Widget _buildNavIcon({
+  /// Onglet actif : pilule pleine (icône + libellé) ;
+  /// inactif : cercle clair bordé (icône seule)
+  Widget _buildNavItem({
     required dynamic icon,
+    required String label,
     required bool isSelected,
+    required VoidCallback onTap,
   }) {
-    if (isSelected) {
-      return Container(
-        padding: const EdgeInsets.all(10),
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final surface = Theme.of(context).scaffoldBackgroundColor;
+    final fg = isSelected ? surface : onSurface;
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOutCubic,
+        height: 56,
+        padding: EdgeInsets.symmetric(horizontal: isSelected ? 22 : 16),
         decoration: BoxDecoration(
-          color: Colors.black,
-          shape: BoxShape.circle,
+          color: isSelected ? onSurface : surface,
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(color: onSurface, width: 2),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.15),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : null,
         ),
-        child: Transform.scale(
-          scale: 0.95,
-          child: HugeIcon(
-            icon: icon,
-            size: 24,
-            color: Colors.white,
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            HugeIcon(icon: icon, size: 22, color: fg),
+            if (isSelected) ...[
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  color: fg,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ],
         ),
-      );
-    } else {
-      return Transform.scale(
-        scale: 0.95,
-        child: HugeIcon(
-          icon: icon,
-          size: 24,
-          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
-        ),
-      );
-    }
+      ),
+    );
   }
 }

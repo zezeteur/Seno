@@ -203,7 +203,8 @@ class _AccountScreenState extends State<AccountScreen> {
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
     final topPadding = mediaQuery.viewPadding.top;
-    final bottomPadding = mediaQuery.viewPadding.bottom;
+    // Navbar flottante : barre système + bouton (56) + marges (8 + 32)
+    final bottomPadding = mediaQuery.viewPadding.bottom + 96;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -376,8 +377,8 @@ class _AccountScreenState extends State<AccountScreen> {
                       iconColor: Colors.red,
                     ),
                   ),
-                  // SafeArea en bas
-                  SizedBox(height: bottomPadding),
+                  // Fin de page : rien n'est caché derrière la navbar
+                  SizedBox(height: bottomPadding + 40),
                 ],
               ),
             ),

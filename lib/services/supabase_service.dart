@@ -293,6 +293,18 @@ class SupabaseService {
         decode: (j) => AccountLimits.fromJson(Map<String, dynamic>.from(j as Map)),
       );
 
+  /// Montants déjà envoyés aujourd'hui et ce mois-ci (non mis en cache)
+  static Future<({int daily, int monthly})> getLimitsUsage() async {
+    final supabase = client;
+    if (supabase == null) throw const AuthOtpException('service_unavailable');
+    final rows = await supabase.rpc('get_my_plafond_usage') as List;
+    final row = rows.isEmpty ? const {} : rows.first as Map;
+    return (
+      daily: (row['journalier'] as num?)?.toInt() ?? 0,
+      monthly: (row['mensuel'] as num?)?.toInt() ?? 0,
+    );
+  }
+
   /// Coordonnées du support (table support_contacts)
   static Future<SupportContacts> getSupportContacts() =>
       CacheStore.cached<SupportContacts>(

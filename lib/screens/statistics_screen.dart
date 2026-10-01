@@ -208,7 +208,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
     final topPadding = mediaQuery.viewPadding.top;
-    final bottomPadding = mediaQuery.viewPadding.bottom;
+    // Navbar flottante : barre système + bouton (56) + marges (8 + 32)
+    final bottomPadding = mediaQuery.viewPadding.bottom + 96;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -369,8 +370,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                       ],
                     ),
                   ),
-                  // SafeArea en bas
-                  SizedBox(height: bottomPadding),
+                  // Fin de page : rien n'est caché derrière la navbar
+                  SizedBox(height: bottomPadding + 40),
                 ],
               ),
             ),

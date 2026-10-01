@@ -41,8 +41,13 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
   String? _idempotencyKey;
   String? _idempotencyPayload;
   static const int _minAmount = 200;
-  // Plafond par envoi (table plafonds_transfert), revérifié par le serveur
-  int _maxAmount = 1000000;
+  // Plafond par envoi (table plafonds_transfert) et restants du jour / du
+  // mois : la saisie est bornée au plus petit, le serveur revérifie
+  int _perTransactionLimit = 1000000;
+  int? _remainingDaily;
+  int? _remainingMonthly;
+  // La dernière touche a été refusée : le plafond s'affiche en rouge
+  bool _hitMax = false;
   static final _phonePattern = RegExp(r'^[\d ]+$');
 
   List<RecentRecipient> get _recents => RecentsStore.recents.value;
@@ -325,10 +330,32 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
   Future<void> _loadLimits() async {
     try {
       final limits = await SupabaseService.getAccountLimits();
-      if (mounted) setState(() => _maxAmount = limits.perTransaction);
+      if (mounted) setState(() => _perTransactionLimit = limits.perTransaction);
+      final usage = await SupabaseService.getLimitsUsage();
+      if (!mounted) return;
+      setState(() {
+        _remainingDaily = (limits.daily - usage.daily).clamp(0, limits.daily);
+        _remainingMonthly =
+            (limits.monthly - usage.monthly).clamp(0, limits.monthly);
+      });
     } catch (_) {
-      // Hors ligne sans cache : plafond par défaut
+      // Hors ligne : plafond par envoi seul, le serveur tranche
     }
+  }
+
+  /// Restant le plus contraignant (jour ou mois), null si inconnu
+  int? get _remaining => switch ((_remainingDaily, _remainingMonthly)) {
+        (final d?, final m?) => d < m ? d : m,
+        (final d?, null) => d,
+        (null, final m?) => m,
+        _ => null,
+      };
+
+  int get _maxAmount {
+    final remaining = _remaining;
+    return remaining != null && remaining < _perTransactionLimit
+        ? remaining
+        : _perTransactionLimit;
   }
 
   Future<void> _loadFeePercent() async {
@@ -618,10 +645,13 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
   bool get _recipientValid {
     final text = _recipientController.text.trim();
     if (text.isEmpty) return false;
-    return _phonePattern.hasMatch(text)
-        ? text.replaceAll(' ', '').length == 10
-        : text.length >= 3;
+    if (!_phonePattern.hasMatch(text)) return text.length >= 3;
+    final digits = text.replaceAll(' ', '');
+    return digits.length == 10 && _validPhonePrefix.hasMatch(digits);
   }
+
+  /// Numéros locaux acceptés : 01, 05 ou 07
+  static final _validPhonePrefix = RegExp(r'^0[157]');
 
   void _selectRecipient(String value,
       {String? avatarUrl, String? phone, bool saveRecent = true}) {
@@ -672,16 +702,23 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
     // Au-delà du maximum : la touche est ignorée
     if (int.parse(_amount + digit) > _maxAmount) {
       HapticFeedback.heavyImpact();
+      setState(() => _hitMax = true);
       return;
     }
     HapticFeedback.lightImpact();
-    setState(() => _amount += digit);
+    setState(() {
+      _amount += digit;
+      _hitMax = false;
+    });
   }
 
   void _onDelete() {
     if (_amount.isEmpty) return;
     HapticFeedback.lightImpact();
-    setState(() => _amount = _amount.substring(0, _amount.length - 1));
+    setState(() {
+      _amount = _amount.substring(0, _amount.length - 1);
+      _hitMax = false;
+    });
   }
 
   /// Sheet de confirmation : se valide automatiquement après 15 s
@@ -761,6 +798,8 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
         setState(() => _loading = false);
         ToastService.showError(context,
             context.tr(limitExceeded ? 'send_limit_exceeded' : 'send_failed'));
+        // Restants périmés (envoi depuis un autre appareil) : rechargés
+        if (limitExceeded) _loadLimits();
       }
       return;
     }
@@ -846,24 +885,6 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
                 onPressed: _onBack,
               ),
             ),
-            // Scanner : ouvre l'écran QR sur l'onglet « Envoyer » (caméra)
-            if (_step == _Step.recipient)
-              Positioned(
-                top: viewPadding.top + 8,
-                right: 8,
-                child: IconButton(
-                  icon: HugeIcon(
-                    icon: HugeIcons.strokeRoundedQrCode01,
-                    color: textTheme.bodyLarge?.color ?? Colors.black,
-                  ),
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const QRCodeViewerScreen(scanOnly: true),
-                    ),
-                  ),
-                ),
-              ),
           ],
         ),
       ),
@@ -906,7 +927,7 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Titre : glisse entre les boutons retour et scanner (48 px + marges)
+        // Titre : glisse à côté du bouton retour (48 px + marges)
         AnimatedContainer(
           duration: _headerDuration,
           curve: Curves.easeOutCubic,
@@ -978,6 +999,20 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
                 icon: HugeIcons.strokeRoundedSearch01,
                 size: 20,
                 color: onSurface.withValues(alpha: 0.5),
+              ),
+            ),
+            // Scanner : ouvre l'écran QR sur l'onglet « Envoyer » (caméra)
+            suffixIcon: IconButton(
+              icon: HugeIcon(
+                icon: HugeIcons.strokeRoundedQrCode01,
+                size: 20,
+                color: onSurface.withValues(alpha: 0.7),
+              ),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const QRCodeViewerScreen(scanOnly: true),
+                ),
               ),
             ),
             // Pilule : tous les états (le thème peut surcharger enabled/focused)
@@ -1147,6 +1182,39 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
     );
   }
 
+  /// Sous le montant : plafond atteint, ou maximum / minimum non respecté
+  /// (le maximum seulement quand une touche le dépasse)
+  Widget _buildLimitHint(TextTheme textTheme) {
+    final remaining = _remaining;
+    final String? text;
+    var error = _hitMax;
+    if (remaining != null && remaining < _minAmount) {
+      text = context.tr('send_limit_reached');
+      error = true;
+    } else if (_hitMax) {
+      text = context.tr('send_max_amount',
+          {'amount': '${_formatAmount(_maxAmount.toString())} FCFA'});
+    } else if (_amount.isNotEmpty && _amountValue < _minAmount) {
+      text = context.tr('send_min_amount',
+          {'amount': '${_formatAmount(_minAmount.toString())} FCFA'});
+      error = true;
+    } else {
+      text = null;
+    }
+    if (text == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: textTheme.bodySmall?.copyWith(
+          color: error ? Colors.red : AppColors.textSecondary,
+          fontWeight: error ? FontWeight.w600 : null,
+        ),
+      ),
+    );
+  }
+
   Widget _buildAmountStep(TextTheme textTheme) {
     final isPhone = _phonePattern.hasMatch(_recipient);
     return Column(
@@ -1269,6 +1337,7 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
             ),
           ),
         ),
+        _buildLimitHint(textTheme),
         const SizedBox(height: 16),
         if (_compte != null)
           Center(
