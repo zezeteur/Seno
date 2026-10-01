@@ -35,7 +35,7 @@ class OtpScreen extends StatefulWidget {
   State<OtpScreen> createState() => _OtpScreenState();
 }
 
-class _OtpScreenState extends State<OtpScreen> {
+class _OtpScreenState extends State<OtpScreen> with WidgetsBindingObserver {
   static const int _codeLength = 4;
   static const int _resendDelay = 30;
 
@@ -50,6 +50,7 @@ class _OtpScreenState extends State<OtpScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _focusNode.addListener(() => setState(() {}));
     _startTimer();
     _listenForSms();
@@ -57,11 +58,28 @@ class _OtpScreenState extends State<OtpScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     if (_isAndroid) SmartAuth.instance.removeUserConsentApiListener();
     _timer?.cancel();
     _codeController.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _showKeyboard();
+  }
+
+  /// Le champ peut garder le focus alors que le clavier a été fermé
+  /// (retour dans l'app) : requestFocus seul ne le rouvre pas.
+  void _showKeyboard() {
+    if (_isLoading) return;
+    if (_focusNode.hasFocus) {
+      SystemChannels.textInput.invokeMethod('TextInput.show');
+    } else {
+      _focusNode.requestFocus();
+    }
   }
 
   void _startTimer() {
@@ -179,7 +197,7 @@ class _OtpScreenState extends State<OtpScreen> {
     final onSurface = Theme.of(context).colorScheme.onSurface;
 
     return GestureDetector(
-      onTap: () => _focusNode.requestFocus(),
+      onTap: _showKeyboard,
       child: Stack(
         children: [
           // Champ invisible qui reçoit la saisie (et l'autoremplissage SMS)
@@ -247,114 +265,111 @@ class _OtpScreenState extends State<OtpScreen> {
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     final canResend = _secondsLeft <= 0 && !_isLoading;
+    final viewPadding = MediaQuery.of(context).viewPadding;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: SafeArea(
-        child: Stack(
-          children: [
-            Positioned(
-              top: 8,
-              left: 8,
-              child: IconButton(
-                icon: HugeIcon(
-                  icon: HugeIcons.strokeRoundedArrowLeft01,
-                  color: textTheme.bodyLarge?.color ?? Colors.black,
-                ),
-                onPressed:
-                    _isLoading ? null : () => Navigator.of(context).pop(),
-              ),
-            ),
-            Align(
-              alignment: Alignment.topCenter,
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 72, 24, 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      context.tr('verification'),
-                      style: textTheme.headlineLarge
-                          ?.copyWith(fontWeight: FontWeight.bold),
+      body: Stack(
+        children: [
+          Align(
+            alignment: Alignment.topCenter,
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                  24, viewPadding.top + 72, 24, viewPadding.bottom + 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    context.tr('verification'),
+                    style: textTheme.headlineLarge
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Text.rich(
+                    TextSpan(
+                      style: textTheme.bodyLarge
+                          ?.copyWith(color: AppColors.textSecondary),
+                      children: [
+                        TextSpan(text: context.tr('code_sent_to_prefix')),
+                        TextSpan(
+                          text: widget.displayPhone,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: textTheme.bodyLarge?.color,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 8),
-                    Text.rich(
-                      TextSpan(
-                        style: textTheme.bodyLarge
-                            ?.copyWith(color: AppColors.textSecondary),
-                        children: [
-                          TextSpan(text: context.tr('code_sent_to_prefix')),
-                          TextSpan(
-                            text: widget.displayPhone,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              color: textTheme.bodyLarge?.color,
+                  ),
+                  const SizedBox(height: 48),
+                  _buildCodeBoxes(),
+                  const SizedBox(height: 40),
+                  // Validation automatique dès le 4e chiffre
+                  SizedBox(
+                    height: 24,
+                    child: _isLoading
+                        ? const Center(
+                            child: SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: AppColors.secondary,
+                              ),
+                            ),
+                          )
+                        : null,
+                  ),
+                  const SizedBox(height: 20),
+                  Center(
+                    child: canResend
+                        ? TextButton(
+                            onPressed: _resendCode,
+                            style: TextButton.styleFrom(
+                              overlayColor: Colors.transparent,
+                            ),
+                            child: Text(context.tr('resend_code')),
+                          )
+                        : Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            child: Text(
+                              context.tr('resend_in', {
+                                'seconds': '$_secondsLeft',
+                              }),
+                              style: textTheme.bodyMedium
+                                  ?.copyWith(color: AppColors.textSecondary),
                             ),
                           ),
-                        ],
+                  ),
+                  Center(
+                    child: TextButton(
+                      onPressed:
+                          _isLoading ? null : () => Navigator.of(context).pop(),
+                      style: TextButton.styleFrom(
+                        overlayColor: Colors.transparent,
+                      ),
+                      child: Text(
+                        context.tr('change_number'),
+                        style: const TextStyle(color: AppColors.textSecondary),
                       ),
                     ),
-                    const SizedBox(height: 48),
-                    _buildCodeBoxes(),
-                    const SizedBox(height: 40),
-                    // Validation automatique dès le 4e chiffre
-                    SizedBox(
-                      height: 24,
-                      child: _isLoading
-                          ? const Center(
-                              child: SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: AppColors.secondary,
-                                ),
-                              ),
-                            )
-                          : null,
-                    ),
-                    const SizedBox(height: 20),
-                    Center(
-                      child: canResend
-                          ? TextButton(
-                              onPressed: _resendCode,
-                              style: TextButton.styleFrom(
-                                overlayColor: Colors.transparent,
-                              ),
-                              child: Text(context.tr('resend_code')),
-                            )
-                          : Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              child: Text(
-                                context.tr('resend_in', {
-                                  'seconds': '$_secondsLeft',
-                                }),
-                                style: textTheme.bodyMedium
-                                    ?.copyWith(color: AppColors.textSecondary),
-                              ),
-                            ),
-                    ),
-                    Center(
-                      child: TextButton(
-                        onPressed: _isLoading
-                            ? null
-                            : () => Navigator.of(context).pop(),
-                        style: TextButton.styleFrom(
-                          overlayColor: Colors.transparent,
-                        ),
-                        child: Text(
-                          context.tr('change_number'),
-                          style:
-                              const TextStyle(color: AppColors.textSecondary),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
-          ],
-        ),
+          ),
+          Positioned(
+            top: viewPadding.top + 8,
+            left: 8,
+            child: IconButton(
+              icon: HugeIcon(
+                icon: HugeIcons.strokeRoundedArrowLeft01,
+                color: textTheme.bodyLarge?.color ?? Colors.black,
+              ),
+              onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
+            ),
+          ),
+        ],
       ),
     );
   }

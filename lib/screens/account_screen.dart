@@ -80,6 +80,7 @@ class _AccountScreenState extends State<AccountScreen> {
 
     if (confirm) {
       try {
+        await SupabaseService.unsubscribeTransactions();
         await supabase.auth.signOut();
         if (mounted) {
           Navigator.of(context).pushAndRemoveUntil(

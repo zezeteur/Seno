@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -225,8 +226,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                   children: [
                                     ClipRRect(
                                       borderRadius: BorderRadius.circular(4),
-                                      child: Image.network(
-                                        'https://flagcdn.com/w80/$_countryIso.png',
+                                      child: Image(
+                                        image: CachedNetworkImageProvider(
+                                            'https://flagcdn.com/w80/$_countryIso.png'),
                                         width: 32,
                                         height: 22,
                                         fit: BoxFit.cover,

@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -316,8 +317,8 @@ class _WalletScreenState extends State<WalletScreen>
                         children: [
                           ClipRRect(
                             borderRadius: BorderRadius.circular(6),
-                            child: Image.network(
-                              reseau.logo,
+                            child: Image(
+                              image: CachedNetworkImageProvider(reseau.logo),
                               width: 50,
                               height: 30,
                               fit: BoxFit.contain,
@@ -553,8 +554,8 @@ class _WalletScreenState extends State<WalletScreen>
             children: [
               ClipRRect(
                 borderRadius: BorderRadius.circular(6),
-                child: Image.network(
-                  reseau.logo,
+                child: Image(
+                  image: CachedNetworkImageProvider(reseau.logo),
                   width: 50,
                   height: 30,
                   fit: BoxFit.contain,
@@ -1160,8 +1161,9 @@ class _WalletScreenState extends State<WalletScreen>
                                     children: [
                                       ClipRRect(
                                         borderRadius: BorderRadius.circular(6),
-                                        child: Image.network(
-                                          reseau.logo,
+                                        child: Image(
+                                          image: CachedNetworkImageProvider(
+                                              reseau.logo),
                                           width: 40,
                                           height: 24,
                                           fit: BoxFit.contain,
@@ -1251,8 +1253,9 @@ class _WalletScreenState extends State<WalletScreen>
                         children: [
                           ClipRRect(
                             borderRadius: BorderRadius.circular(12),
-                            child: Image.network(
-                              _selectedReseau!.logo,
+                            child: Image(
+                              image: CachedNetworkImageProvider(
+                                  _selectedReseau!.logo),
                               width: 48,
                               height: 32,
                               fit: BoxFit.contain,
@@ -1531,8 +1534,8 @@ class _WalletScreenState extends State<WalletScreen>
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
-                        child: Image.network(
-                          reseau.logo,
+                        child: Image(
+                          image: CachedNetworkImageProvider(reseau.logo),
                           width: 40,
                           height: 24,
                           fit: BoxFit.contain,
@@ -1965,8 +1968,8 @@ class _WalletScreenState extends State<WalletScreen>
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(6),
-                        child: Image.network(
-                          reseau.logo,
+                        child: Image(
+                          image: CachedNetworkImageProvider(reseau.logo),
                           width: 48,
                           height: 32,
                           fit: BoxFit.contain,
@@ -2246,8 +2249,8 @@ class _WalletScreenState extends State<WalletScreen>
                       children: [
                         ClipRRect(
                           borderRadius: BorderRadius.circular(6),
-                          child: Image.network(
-                            reseau.logo,
+                          child: Image(
+                            image: CachedNetworkImageProvider(reseau.logo),
                             width: 48,
                             height: 32,
                             fit: BoxFit.contain,
@@ -2499,8 +2502,8 @@ class _WalletScreenState extends State<WalletScreen>
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(6),
-                        child: Image.network(
-                          reseau.logo,
+                        child: Image(
+                          image: CachedNetworkImageProvider(reseau.logo),
                           width: 48,
                           height: 32,
                           fit: BoxFit.contain,

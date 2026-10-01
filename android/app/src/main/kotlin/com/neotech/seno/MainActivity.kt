@@ -1,4 +1,4 @@
-package com.saudisgroup.seno
+package com.neotech.seno
 
 import io.flutter.embedding.android.FlutterFragmentActivity
 

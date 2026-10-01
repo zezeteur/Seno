@@ -1,15 +1,19 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../l10n/app_strings.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:hugeicons/hugeicons.dart';
 import '../widgets/dynamic_qr.dart';
+import '../services/recents_store.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_colors.dart';
+import '../widgets/transaction_list.dart';
 import '../widgets/user_avatar.dart';
 import 'qr_code_viewer_screen.dart';
 import 'send_money_screen.dart';
 import 'wallet_screen.dart';
 import 'statistics_screen.dart';
+import 'history_screen.dart';
 import 'account_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -21,7 +25,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final supabase = Supabase.instance.client;
   late int _currentIndex;
 
@@ -31,12 +35,59 @@ class _HomeScreenState extends State<HomeScreen> {
     _currentIndex = widget.initialIndex;
     _loadFirstName();
     SupabaseService.profileRevision.addListener(_loadFirstName);
+    RecentsStore.load();
+    // Récents : dernières copies, puis mise à jour silencieuse en fond
+    RecentsStore.refresh();
+    WidgetsBinding.instance.addObserver(this);
+    _loadTransactions();
+    SupabaseService.transactionsRevision.addListener(_loadTransactions);
+    // Statuts en direct (envois et réceptions) tant que l'app est ouverte
+    SupabaseService.subscribeTransactions();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      RecentsStore.refresh();
+      _loadTransactions();
+      SupabaseService.subscribeTransactions();
+    } else if (state == AppLifecycleState.paused) {
+      // Arrière-plan : la connexion Realtime n'est pas gardée ouverte
+      SupabaseService.unsubscribeTransactions();
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     SupabaseService.profileRevision.removeListener(_loadFirstName);
+    SupabaseService.transactionsRevision.removeListener(_loadTransactions);
+    SupabaseService.unsubscribeTransactions();
     super.dispose();
+  }
+
+  /// Copie en cache tout de suite, puis version fraîche ; null si aucune des deux
+  List<SenoTransaction>? _transactions = SupabaseService.peekTransactions();
+  bool _transactionsError = false;
+  int _transactionsLoadId = 0;
+
+  Future<void> _loadTransactions() async {
+    final id = ++_transactionsLoadId;
+    try {
+      final list =
+          await SupabaseService.getTransactions(limit: _homeTransactionsCount);
+      if (mounted && id == _transactionsLoadId) {
+        setState(() {
+          _transactions = list;
+          _transactionsError = false;
+        });
+      }
+    } catch (_) {
+      // Hors ligne sans copie en cache : message d'erreur
+      if (mounted && id == _transactionsLoadId) {
+        setState(() => _transactionsError = true);
+      }
+    }
   }
 
   String? _firstName;
@@ -73,7 +124,8 @@ class _HomeScreenState extends State<HomeScreen> {
     return CircleAvatar(
       radius: 24,
       backgroundColor: Colors.black,
-      foregroundImage: _avatarUrl != null ? NetworkImage(_avatarUrl!) : null,
+      foregroundImage:
+          _avatarUrl != null ? CachedNetworkImageProvider(_avatarUrl!) : null,
       child: initial != null
           ? Text(
               initial,
@@ -123,7 +175,7 @@ class _HomeScreenState extends State<HomeScreen> {
           // Carte de solde jaune
           _buildBalanceCard(context),
 
-          // Section Today avec transactions
+          // Dernières transactions + accès à l'historique
           _buildTransactionsSection(context),
           // SafeArea en bas
           SizedBox(height: bottomPadding),
@@ -246,51 +298,69 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
 
               // Contacts pour envoyer de l'argent - sans padding latéral pour aller jusqu'aux bords
-              SizedBox(
-                height: 80,
-                child: ClipRect(
-                  clipBehavior: Clip.hardEdge,
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: Row(
-                        children: [
-                          _buildSendContact(
-                            context,
-                            icon: HugeIcons.strokeRoundedArrowRight01,
-                            label: context.tr('send'),
-                            isIcon: true,
+              // 3 derniers destinataires (nom du répertoire si connu)
+              ListenableBuilder(
+                listenable: Listenable.merge([
+                  RecentsStore.recents,
+                  RecentsStore.phoneContacts,
+                  RecentsStore.senoAccounts,
+                ]),
+                builder: (context, _) {
+                  final recents = RecentsStore.recents.value;
+                  final contacts = RecentsStore.phoneContacts.value;
+                  final seno = RecentsStore.senoAccounts.value;
+                  // Aucun récent : le bouton d'envoi occupe toute la largeur
+                  if (recents.isEmpty) {
+                    return SizedBox(
+                      height: 80,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: _buildSendContact(
+                          context,
+                          icon: HugeIcons.strokeRoundedArrowRight01,
+                          label: context.tr('send'),
+                          isIcon: true,
+                          fullWidth: true,
+                        ),
+                      ),
+                    );
+                  }
+                  return SizedBox(
+                    height: 80,
+                    child: ClipRect(
+                      clipBehavior: Clip.hardEdge,
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Row(
+                            children: [
+                              _buildSendContact(
+                                context,
+                                icon: HugeIcons.strokeRoundedArrowRight01,
+                                label: context.tr('send'),
+                                isIcon: true,
+                              ),
+                              for (final r in recents.take(3)) ...[
+                                const SizedBox(width: 12),
+                                _buildSendContact(
+                                  context,
+                                  icon: HugeIcons.strokeRoundedAiUser,
+                                  label: RecentsStore.contactName(
+                                          r, contacts, seno) ??
+                                      r.value,
+                                  isIcon: false,
+                                  avatarUrl: r.avatarUrl,
+                                  recipient: r,
+                                ),
+                              ],
+                            ],
                           ),
-                          const SizedBox(width: 12),
-                          _buildSendContact(
-                            context,
-                            icon: HugeIcons.strokeRoundedAiUser,
-                            label: 'devon',
-                            isIcon: false,
-                            color: Colors.blue,
-                          ),
-                          const SizedBox(width: 12),
-                          _buildSendContact(
-                            context,
-                            icon: HugeIcons.strokeRoundedAiUser,
-                            label: 'sara_k',
-                            isIcon: false,
-                            color: Colors.green,
-                          ),
-                          const SizedBox(width: 12),
-                          _buildSendContact(
-                            context,
-                            icon: HugeIcons.strokeRoundedAiUser,
-                            label: 'moussa225',
-                            isIcon: false,
-                            color: Colors.purple,
-                          ),
-                        ],
+                        ),
                       ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
               const SizedBox(height: 20),
             ],
@@ -307,6 +377,8 @@ class _HomeScreenState extends State<HomeScreen> {
     required bool isIcon,
     Color? color,
     String? avatarUrl,
+    RecentRecipient? recipient,
+    bool fullWidth = false,
   }) {
     // Bouton d'envoi : pilule noire avec le texte à l'intérieur
     if (isIcon) {
@@ -319,6 +391,7 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Container(
               height: 56,
+              width: fullWidth ? double.infinity : null,
               padding: const EdgeInsets.symmetric(horizontal: 20),
               decoration: BoxDecoration(
                 color: Colors.black,
@@ -326,6 +399,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
                     label,
@@ -348,9 +422,13 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return GestureDetector(
-      onTap: () {
-        // Fonctionnalité à venir
-      },
+      // Envoi direct : l'écran s'ouvre sur le montant pour ce destinataire
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SendMoneyScreen(initialRecipient: recipient),
+        ),
+      ),
       child: Column(
         children: [
           UserAvatar(
@@ -381,307 +459,81 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// Nombre de transactions affichées sur l'accueil (le reste : historique)
+  static const _homeTransactionsCount = 10;
+
   Widget _buildTransactionsSection(BuildContext context) {
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final transactions = _transactions;
+
+    Widget message(String text) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 32),
+          child: Center(
+            child: Text(
+              text,
+              textAlign: TextAlign.center,
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: onSurface.withValues(alpha: 0.5)),
+            ),
+          ),
+        );
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Header Today
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Transform.scale(
-                    scale: 0.95,
-                    child: HugeIcon(
-                      icon: HugeIcons.strokeRoundedWallet01,
-                      size: 16,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withOpacity(0.6),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    context.tr('today'),
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurface,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 18,
-                        ),
-                  ),
-                ],
-              ),
-              IconButton(
-                icon: Transform.scale(
-                  scale: 0.95,
-                  child: HugeIcon(
-                    icon: HugeIcons.strokeRoundedAiSearch,
-                    size: 20,
-                    color: Theme.of(context).colorScheme.onSurface,
-                  ),
+          if (transactions == null || transactions.isEmpty) ...[
+            TransactionsHeader(label: context.tr('transactions')),
+            const SizedBox(height: 16),
+          ],
+          if (transactions == null)
+            _transactionsError
+                ? message(context.tr('tx_load_error'))
+                : const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 32),
+                    child: Center(
+                        child: CircularProgressIndicator(strokeWidth: 2)),
+                  )
+          else if (transactions.isEmpty)
+            message(context.tr('tx_empty'))
+          else ...[
+            TransactionList(
+              transactions: transactions.take(_homeTransactionsCount).toList(),
+            ),
+            // Toutes les transactions, avec filtres (largeur du contenu)
+            Center(
+              child: OutlinedButton.icon(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const HistoryScreen()),
                 ),
-                onPressed: () {
-                  // Fonctionnalité à venir
-                },
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-
-          // Transaction Airbnb
-          _buildTransactionItem(
-            context,
-            icon: HugeIcons.strokeRoundedHome01,
-            iconColor: Colors.red,
-            title: 'AirBnb',
-            category: context.tr('cat_housing'),
-            amount: '- 200',
-            isNegative: true,
-          ),
-          const SizedBox(height: 12),
-
-          // Transaction McDonald's
-          _buildTransactionItem(
-            context,
-            icon: HugeIcons.strokeRoundedRestaurant01,
-            iconColor: Colors.green.shade700,
-            title: 'McDonald\'s',
-            category: context.tr('cat_restaurant'),
-            amount: '- 1,123.10',
-            isNegative: true,
-          ),
-          const SizedBox(height: 12),
-
-          // Transaction Transfer
-          _buildTransactionItem(
-            context,
-            icon: HugeIcons.strokeRoundedCoinsSwap,
-            iconColor: Theme.of(context).colorScheme.onSurface,
-            title: context.tr('transfer'),
-            category: '*4243',
-            amount: '+ 153.54',
-            isNegative: false,
-          ),
-          const SizedBox(height: 12),
-
-          // Transaction Uber
-          _buildTransactionItem(
-            context,
-            icon: HugeIcons.strokeRoundedCar01,
-            iconColor: Colors.black,
-            title: 'Uber',
-            category: context.tr('cat_transport'),
-            amount: '- 2,500',
-            isNegative: true,
-          ),
-          const SizedBox(height: 12),
-
-          // Transaction Salaire
-          _buildTransactionItem(
-            context,
-            icon: HugeIcons.strokeRoundedCoinsSwap,
-            iconColor: Colors.green,
-            title: context.tr('salary'),
-            category: context.tr('cat_income'),
-            amount: '+ 150,000',
-            isNegative: false,
-          ),
-          const SizedBox(height: 12),
-
-          // Transaction Netflix
-          _buildTransactionItem(
-            context,
-            icon: HugeIcons.strokeRoundedPlay,
-            iconColor: Colors.red.shade700,
-            title: 'Netflix',
-            category: context.tr('cat_subscription'),
-            amount: '- 5,000',
-            isNegative: true,
-          ),
-          const SizedBox(height: 12),
-
-          // Transaction Pharmacie
-          _buildTransactionItem(
-            context,
-            icon: HugeIcons.strokeRoundedShoppingBag01,
-            iconColor: Colors.blue,
-            title: context.tr('pharmacy'),
-            category: context.tr('cat_health'),
-            amount: '- 8,750',
-            isNegative: true,
-          ),
-          const SizedBox(height: 12),
-
-          // Transaction Supermarché
-          _buildTransactionItem(
-            context,
-            icon: HugeIcons.strokeRoundedShoppingCart01,
-            iconColor: Colors.orange,
-            title: context.tr('supermarket'),
-            category: context.tr('cat_groceries'),
-            amount: '- 12,300',
-            isNegative: true,
-          ),
-          const SizedBox(height: 12),
-
-          // Transaction Spotify
-          _buildTransactionItem(
-            context,
-            icon: HugeIcons.strokeRoundedPlay,
-            iconColor: Colors.green.shade600,
-            title: 'Spotify',
-            category: context.tr('cat_subscription'),
-            amount: '- 2,500',
-            isNegative: true,
-          ),
-          const SizedBox(height: 12),
-
-          // Transaction Essence
-          _buildTransactionItem(
-            context,
-            icon: HugeIcons.strokeRoundedCar01,
-            iconColor: Colors.amber.shade700,
-            title: context.tr('gas_station'),
-            category: context.tr('cat_transport'),
-            amount: '- 15,000',
-            isNegative: true,
-          ),
-          const SizedBox(height: 12),
-
-          // Transaction Virement reçu
-          _buildTransactionItem(
-            context,
-            icon: HugeIcons.strokeRoundedCoinsSwap,
-            iconColor: Colors.green,
-            title: context.tr('transfer_received'),
-            category: 'Marie Dupont',
-            amount: '+ 25,000',
-            isNegative: false,
-          ),
-          const SizedBox(height: 12),
-
-          // Transaction Café
-          _buildTransactionItem(
-            context,
-            icon: HugeIcons.strokeRoundedRestaurant01,
-            iconColor: Colors.brown,
-            title: 'Starbucks',
-            category: context.tr('cat_cafe'),
-            amount: '- 3,500',
-            isNegative: true,
-          ),
-          const SizedBox(height: 12),
-
-          // Transaction Amazon
-          _buildTransactionItem(
-            context,
-            icon: HugeIcons.strokeRoundedShoppingBag01,
-            iconColor: Colors.orange.shade700,
-            title: 'Amazon',
-            category: context.tr('cat_online'),
-            amount: '- 45,000',
-            isNegative: true,
-          ),
-          const SizedBox(height: 12),
-
-          // Transaction Banque
-          _buildTransactionItem(
-            context,
-            icon: HugeIcons.strokeRoundedWallet01,
-            iconColor: Colors.blue.shade700,
-            title: context.tr('bank_fees'),
-            category: context.tr('cat_bank'),
-            amount: '- 1,000',
-            isNegative: true,
-          ),
-          const SizedBox(height: 12),
-
-          // Transaction Cinéma
-          _buildTransactionItem(
-            context,
-            icon: HugeIcons.strokeRoundedPlay,
-            iconColor: Colors.purple,
-            title: context.tr('cinema'),
-            category: context.tr('cat_entertainment'),
-            amount: '- 5,500',
-            isNegative: true,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTransactionItem(
-    BuildContext context, {
-    required dynamic icon,
-    required Color iconColor,
-    required String title,
-    required String category,
-    required String amount,
-    required bool isNegative,
-  }) {
-    return Row(
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: iconColor,
-            shape: BoxShape.circle,
-          ),
-          child: Center(
-            child: Transform.scale(
-              scale: 0.95,
-              child: HugeIcon(
-                icon: icon,
-                size: 20,
-                color: Colors.white,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: onSurface,
+                  side: BorderSide(color: onSurface.withValues(alpha: 0.15)),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(50)),
+                ),
+                icon: HugeIcon(
+                  icon: HugeIcons.strokeRoundedClock01,
+                  size: 18,
+                  color: onSurface,
+                ),
+                label: Text(
+                  context.tr('history'),
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w600),
+                ),
               ),
             ),
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurface,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 16,
-                    ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                category,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withOpacity(0.5),
-                      fontSize: 12,
-                    ),
-              ),
-            ],
-          ),
-        ),
-        Text(
-          amount,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: isNegative
-                    ? Theme.of(context).colorScheme.onSurface
-                    : AppColors.success,
-                fontWeight: FontWeight.w600,
-                fontSize: 16,
-              ),
-        ),
-      ],
+            const SizedBox(height: 16),
+          ],
+        ],
+      ),
     );
   }
 

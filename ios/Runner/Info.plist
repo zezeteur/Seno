@@ -43,29 +43,25 @@
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<!-- Permissions caméra pour scanner les QR codes -->
+	<key>NSContactsUsageDescription</key>
+	<string>Seno utilise vos contacts pour trouver rapidement à qui envoyer de l'argent.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Cette application a besoin d'accéder à la caméra pour scanner les QR codes et prendre votre photo de profil.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Cette application a besoin d'accéder à vos photos pour choisir votre photo de profil.</string>
-	<!-- Deep links pour OAuth callback et Google Sign-In -->
+	<!-- Les liens rouvrent l'app sans que Flutter ne pousse de route -->
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
+	<!-- Deep links (retour de paiement) -->
 	<key>CFBundleURLTypes</key>
 	<array>
-		<!-- Deep link pour OAuth callback -->
+		<!-- Schéma de l'app -->
 		<dict>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.saudisgroup.seno</string>
-			</array>
-		</dict>
-		<!-- Google Sign-In URL Scheme -->
-		<dict>
-			<key>CFBundleTypeRole</key>
-			<string>Editor</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>com.googleusercontent.apps.19573161667-ujpk9oji3dc40gra5buspf8v5q33ihuf</string>
+				<string>com.neotech.seno</string>
 			</array>
 		</dict>
 	</array>

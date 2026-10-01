@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:hugeicons/hugeicons.dart';
 import '../theme/app_colors.dart';
@@ -28,7 +29,8 @@ class UserAvatar extends StatelessWidget {
     return CircleAvatar(
       radius: radius,
       backgroundColor: backgroundColor,
-      foregroundImage: avatarUrl != null ? NetworkImage(avatarUrl!) : null,
+      foregroundImage:
+          avatarUrl != null ? CachedNetworkImageProvider(avatarUrl!) : null,
       // Photo introuvable : l'initiale ou l'icône reste affichée
       onForegroundImageError: avatarUrl != null ? (_, __) {} : null,
       child: initial != null

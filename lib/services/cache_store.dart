@@ -103,6 +103,15 @@ class CacheStore {
     }
   }
 
+  /// Enregistre une donnée locale (hors réseau), ex. les destinataires récents
+  static Future<void> put(String? userId, String name, Object? json) async {
+    try {
+      await _box?.put(_key(userId, name), jsonEncode(json));
+    } catch (_) {
+      // Écriture impossible : la donnée reste en mémoire pour cet écran
+    }
+  }
+
   /// Supprime une entrée (après une modification, pour éviter une copie périmée)
   static Future<void> remove(String? userId, String name) async {
     await _box?.delete(_key(userId, name));

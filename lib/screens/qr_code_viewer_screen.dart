@@ -1,5 +1,9 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../l10n/app_strings.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:hugeicons/hugeicons.dart';
@@ -9,6 +13,7 @@ import '../utils/auth_errors.dart';
 import '../utils/toast_service.dart';
 import '../widgets/app_bottom_sheet.dart';
 import '../widgets/dynamic_qr.dart';
+import 'send_money_screen.dart';
 
 class QRCodeViewerScreen extends StatefulWidget {
   /// Scanner seul : pas d'onglet « Recevoir » ni de sélecteur (depuis l'envoi)
@@ -361,7 +366,152 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
     );
   }
 
-  Widget _buildInfoPage() => _buildFlipCard();
+  Widget _buildInfoPage() {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _buildFlipCard(),
+        const SizedBox(height: 24),
+        FilledButton.icon(
+          style: FilledButton.styleFrom(
+            backgroundColor: Colors.black,
+            foregroundColor: Colors.white,
+            minimumSize: const Size(300, 52),
+            shape: const StadiumBorder(),
+          ),
+          onPressed: _sharing ? null : _openShareSheet,
+          icon: _sharing
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const HugeIcon(
+                  icon: HugeIcons.strokeRoundedShare08,
+                  size: 20,
+                  color: Colors.white,
+                ),
+          label: Text(context.tr('share')),
+        ),
+      ],
+    );
+  }
+
+  bool _sharing = false;
+
+  /// Sheet de partage : message d'invitation à m'envoyer de l'argent via
+  /// mon pseudo Seno, puis choix de l'appli (comme la sheet native)
+  Future<void> _openShareSheet() async {
+    setState(() => _sharing = true);
+    String? pseudo;
+    try {
+      pseudo = (await SupabaseService.getLockProfile()).pseudo;
+    } catch (e) {
+      if (mounted) ToastService.showError(context, authErrorMessage(context, e));
+      return;
+    } finally {
+      if (mounted) setState(() => _sharing = false);
+    }
+    if (!mounted) return;
+    if (pseudo == null || pseudo.isEmpty) {
+      ToastService.showInfo(context, context.tr('share_no_pseudo'));
+      return;
+    }
+    final message = context.tr('share_money_msg', {'pseudo': '@$pseudo'});
+    final textTheme = Theme.of(context).textTheme;
+    final encoded = Uri.encodeComponent(message);
+
+    final apps = <_ShareApp>[
+      _ShareApp('WhatsApp', HugeIcons.strokeRoundedWhatsapp,
+          const Color(0xFF25D366), 'whatsapp://send?text=$encoded'),
+      _ShareApp('SMS', HugeIcons.strokeRoundedMessage01,
+          const Color(0xFF34C759), 'sms:?&body=$encoded'),
+      _ShareApp('Telegram', HugeIcons.strokeRoundedTelegram,
+          const Color(0xFF229ED9), 'tg://msg?text=$encoded'),
+      _ShareApp('Messenger', HugeIcons.strokeRoundedMessenger,
+          const Color(0xFF0084FF), 'fb-messenger://share?link=$encoded'),
+      _ShareApp('Email', HugeIcons.strokeRoundedMail01, Colors.redAccent,
+          'mailto:?subject=Seno&body=$encoded'),
+      _ShareApp(context.tr('copy'), HugeIcons.strokeRoundedCopy01,
+          Colors.black, null, copy: true),
+      _ShareApp(context.tr('more'), HugeIcons.strokeRoundedMoreHorizontal,
+          AppColors.textSecondary, null),
+    ];
+
+    await showAppBottomSheet<void>(
+      context: context,
+      title: context.tr('share_qr_title'),
+      builder: (sheetContext) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SizedBox(height: 16),
+          // Aperçu du message envoyé
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(message, style: textTheme.bodyLarge),
+          ),
+          const SizedBox(height: 24),
+          // Applis de destination
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            runSpacing: 16,
+            spacing: 8,
+            children: [
+              for (final app in apps)
+                GestureDetector(
+                  onTap: () async {
+                    Navigator.of(sheetContext).pop();
+                    await _shareTo(app, message);
+                  },
+                  child: SizedBox(
+                    width: 72,
+                    child: Column(
+                      children: [
+                        CircleAvatar(
+                          radius: 28,
+                          backgroundColor: app.color,
+                          child: HugeIcon(
+                              icon: app.icon, size: 26, color: Colors.white),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          app.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _shareTo(_ShareApp app, String message) async {
+    if (app.copy) {
+      await Clipboard.setData(ClipboardData(text: message));
+      if (mounted) ToastService.showSuccess(context, context.tr('msg_copied'));
+      return;
+    }
+    final url = app.url;
+    // « Plus » ou appli absente : sheet native du système
+    if (url == null ||
+        !await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication)
+            .catchError((_) => false)) {
+      await SharePlus.instance.share(ShareParams(text: message));
+    }
+  }
 
   Widget _buildFlipCard() {
     return Center(
@@ -441,7 +591,7 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
               radius: 36,
               backgroundColor: Colors.black,
               foregroundImage: payee.avatarUrl != null
-                  ? NetworkImage(payee.avatarUrl!)
+                  ? CachedNetworkImageProvider(payee.avatarUrl!)
                   : null,
               child: Text(
                 initial,
@@ -485,10 +635,17 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
             onPressed: payee.numeroMasque == null
                 ? null
                 : () {
-                    // L'envoi utilisera payee.payeeRef (référence chiffrée)
+                    // Envoi vers le pseudo scanné : l'écran s'ouvre sur le montant
                     Navigator.of(sheetContext).pop();
-                    ToastService.showInfo(
-                        context, context.tr('send_coming_soon'));
+                    Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => SendMoneyScreen(
+                        initialRecipient: (
+                          value: payee.pseudo,
+                          avatarUrl: payee.avatarUrl,
+                          phone: null,
+                        ),
+                      ),
+                    ));
                   },
             child: Text(context.tr('send')),
           ),
@@ -574,6 +731,17 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
       ),
     );
   }
+}
+
+class _ShareApp {
+  final String label;
+  final dynamic icon;
+  final Color color;
+  final String? url;
+  final bool copy;
+
+  const _ShareApp(this.label, this.icon, this.color, this.url,
+      {this.copy = false});
 }
 
 // Classe pour stocker les informations de position des icônes

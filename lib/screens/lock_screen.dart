@@ -275,6 +275,7 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
 
   Future<void> _signOut() async {
     try {
+      await SupabaseService.unsubscribeTransactions();
       await SupabaseService.client?.auth.signOut();
     } catch (_) {
       // Session déjà invalide côté serveur : la déconnexion locale suffit

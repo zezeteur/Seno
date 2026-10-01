@@ -11,9 +11,10 @@ import '../services/supabase_service.dart';
 import '../theme/app_colors.dart';
 import '../utils/toast_service.dart';
 import '../widgets/app_bottom_sheet.dart';
+import '../widgets/photo_viewer.dart';
 import '../widgets/user_avatar.dart';
 
-enum _AvatarAction { camera, gallery, delete }
+enum _AvatarAction { view, camera, gallery, delete }
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -119,6 +120,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (sheetContext) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (_hasAvatar)
+            _buildMenuItem(
+              icon: HugeIcons.strokeRoundedView,
+              title: context.tr('view_photo'),
+              onTap: () => Navigator.of(sheetContext).pop(_AvatarAction.view),
+            ),
           _buildMenuItem(
             icon: HugeIcons.strokeRoundedCamera01,
             title: context.tr('take_photo'),
@@ -141,6 +148,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
     if (action == null || !mounted) return;
     switch (action) {
+      case _AvatarAction.view:
+        showPhotoViewer(context, _avatarUrl!, heroTag: 'profile-photo');
       case _AvatarAction.camera:
         await _pickAvatar(ImageSource.camera);
       case _AvatarAction.gallery:
@@ -336,10 +345,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     child: Stack(
                       clipBehavior: Clip.none,
                       children: [
-                        UserAvatar(
-                          pseudo: _pseudo ?? _prenoms,
-                          avatarUrl: _avatarUrl,
-                          radius: 52,
+                        Hero(
+                          tag: 'profile-photo',
+                          child: UserAvatar(
+                            pseudo: _pseudo ?? _prenoms,
+                            avatarUrl: _avatarUrl,
+                            radius: 52,
+                          ),
                         ),
                         if (_uploadingAvatar)
                           const Positioned.fill(

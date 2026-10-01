@@ -109,13 +109,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     backgroundColor: AppColors.secondary,
                     foregroundColor: Colors.white,
                     elevation: 0,
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(22),
                     shape: const CircleBorder(),
                   ),
                   child: Icon(
                     _currentPage == _totalPages - 1
                         ? Icons.check
                         : Icons.arrow_forward,
+                    size: 30,
                   ),
                 ),
               ],
@@ -150,6 +151,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // Image
           Expanded(
@@ -172,7 +174,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
-              textAlign: TextAlign.center,
+              textAlign: TextAlign.left,
             ),
           ),
           const SizedBox(height: 8),
@@ -188,7 +190,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         color: AppColors.textSecondary,
                         height: 1.5,
                       ),
-                  textAlign: TextAlign.center,
+                  textAlign: TextAlign.left,
                 ),
               ),
             ),

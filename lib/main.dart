@@ -8,7 +8,6 @@ import 'providers/theme_provider.dart';
 import 'providers/locale_provider.dart';
 import 'theme/app_theme.dart';
 import 'screens/splash_screen.dart';
-import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'config/app_config.dart';
 import 'widgets/app_lock_gate.dart';
@@ -70,16 +69,6 @@ class MyApp extends StatelessWidget {
               GlobalCupertinoLocalizations.delegate,
             ],
             home: const SplashScreen(),
-            // Gérer les deep links OAuth
-            onGenerateRoute: (settings) {
-              if (settings.name == '/login-callback') {
-                // Gérer le callback OAuth
-                return MaterialPageRoute(
-                  builder: (_) => const LoginScreen(),
-                );
-              }
-              return null;
-            },
             builder: (context, child) {
               // Préserver viewPadding pour permettre SafeArea de fonctionner
               // mais mettre padding à zéro pour enlever le SafeArea par défaut

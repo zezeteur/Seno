@@ -31,7 +31,7 @@ if (flutterVersionName == null) {
 }
 
 android {
-    namespace "com.saudisgroup.seno"
+    namespace "com.neotech.seno"
     compileSdk flutter.compileSdkVersion
     ndkVersion flutter.ndkVersion
 
@@ -49,7 +49,7 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.saudisgroup.seno"
+        applicationId "com.neotech.seno"
         minSdkVersion flutter.minSdkVersion
         targetSdkVersion flutter.targetSdkVersion
         versionCode flutterVersionCode.toInteger()

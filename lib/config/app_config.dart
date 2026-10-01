@@ -7,30 +7,25 @@ class AppConfig {
   // SUPABASE CONFIGURATION
   // ============================================
 
-  /// URL de votre projet Supabase
-  static const String supabaseUrl = 'https://jbgnipiavizocgabelcn.supabase.co';
+  // Valeurs lues dans .env à la compilation :
+  //   flutter run --dart-define-from-file=.env
+  // Sans ce flag, les valeurs par défaut ci-dessous sont utilisées.
+
+  /// URL de votre projet Supabase (ou votre nom de domaine)
+  static const String supabaseUrl = String.fromEnvironment(
+    'SUPABASE_URL',
+    defaultValue: 'https://jbgnipiavizocgabelcn.supabase.co',
+  );
 
   /// Clé anonyme (anon key) de Supabase
-  static const String supabaseAnonKey =
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpiZ25pcGlhdml6b2NnYWJlbGNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0NDE2NzcsImV4cCI6MjEwNjAxNzY3N30.TPZn92OFCwztIWwAOzXnJ5hGn32CcLGRCsseEg2X0Qw';
+  static const String supabaseAnonKey = String.fromEnvironment(
+    'SUPABASE_ANON_KEY',
+    defaultValue: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpiZ25pcGlhdml6b2NnYWJlbGNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0NDE2NzcsImV4cCI6MjEwNjAxNzY3N30.TPZn92OFCwztIWwAOzXnJ5hGn32CcLGRCsseEg2X0Qw',
+  );
 
   /// Clé secrète de service (service role key) de Supabase
   /// ⚠️ Ne jamais exposer cette clé côté client !
   static const String supabaseServiceRoleKey = '';
-
-  // ============================================
-  // GOOGLE OAUTH CONFIGURATION
-  // ============================================
-
-  /// Web Client ID pour Google OAuth (obtenu depuis Google Cloud Console)
-  /// Remplacez par votre Web Client ID depuis Google Cloud Console
-  static const String googleWebClientId =
-      '19573161667-nncavbtsbefc2mtlrjgdqgfdldi7a7eg.apps.googleusercontent.com';
-
-  /// iOS Client ID pour Google OAuth (obtenu depuis Google Cloud Console)
-  /// Remplacez par votre iOS Client ID depuis Google Cloud Console
-  static const String googleIosClientId =
-      '19573161667-ujpk9oji3dc40gra5buspf8v5q33ihuf.apps.googleusercontent.com';
 
   // ============================================
   // API CONFIGURATION

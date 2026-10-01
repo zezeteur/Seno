@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -493,6 +494,137 @@ class SupabaseService {
     profileRevision.value++;
   }
 
+  static const _senoLookupBatch = 1000;
+  static const _senoLookupCacheName = 'seno_contacts';
+
+  static Map<String, ({String pseudo, String? avatarUrl})> _decodeSenoContacts(
+          Object? json) =>
+      {
+        for (final e in (json as Map).cast<String, dynamic>().entries)
+          e.key: (
+            pseudo: (e.value as Map)['pseudo'] as String,
+            avatarUrl: (e.value as Map)['avatar_url'] as String?,
+          ),
+      };
+
+  /// Dernière copie des comptes Seno des contacts, sans appel réseau
+  static Map<String, ({String pseudo, String? avatarUrl})> peekSenoContacts() =>
+      CacheStore.peek(
+        name: _senoLookupCacheName,
+        userId: client?.auth.currentUser?.id,
+        decode: _decodeSenoContacts,
+      ) ??
+      {};
+
+  /// Numéros locaux (10 chiffres) ayant un compte Seno → pseudo et photo.
+  /// Toujours relu sur le serveur (lots de 1000) ; la copie enregistrée ne
+  /// sert que hors ligne.
+  static Future<Map<String, ({String pseudo, String? avatarUrl})>>
+      lookupSenoContacts(List<String> localNumbers) async {
+    final userId = client?.auth.currentUser?.id;
+    final numbers = localNumbers.toSet().toList();
+    final found = <String, ({String pseudo, String? avatarUrl})>{};
+    try {
+      for (var i = 0; i < numbers.length; i += _senoLookupBatch) {
+        final batch =
+            numbers.sublist(i, (i + _senoLookupBatch).clamp(0, numbers.length));
+        final rows = await client!.rpc('lookup_seno_contacts', params: {
+          'p_phones': [for (final n in batch) '+225$n'],
+        }) as List<dynamic>;
+        for (final r in rows.cast<Map<String, dynamic>>()) {
+          found[(r['phone'] as String).replaceFirst('+225', '')] = (
+            pseudo: r['pseudo'] as String,
+            avatarUrl: r['avatar_url'] as String?,
+          );
+        }
+      }
+    } catch (_) {
+      // Hors ligne : dernière copie enregistrée, sinon l'erreur d'origine
+      final saved = CacheStore.peek(
+          name: _senoLookupCacheName,
+          userId: userId,
+          decode: _decodeSenoContacts);
+      if (saved == null) rethrow;
+      CacheStore.offline.value = true;
+      return {
+        for (final n in numbers)
+          if (saved[n] case final account?) n: account,
+      };
+    }
+    CacheStore.offline.value = false;
+    // Copie de secours : fusion pour ne pas perdre les autres numéros
+    final saved = CacheStore.peek(
+            name: _senoLookupCacheName,
+            userId: userId,
+            decode: _decodeSenoContacts) ??
+        {};
+    for (final n in numbers) {
+      saved.remove(n);
+    }
+    saved.addAll(found);
+    await CacheStore.put(userId, _senoLookupCacheName, {
+      for (final e in saved.entries)
+        e.key: {'pseudo': e.value.pseudo, 'avatar_url': e.value.avatarUrl},
+    });
+    return found;
+  }
+
+  /// Utilisateurs Seno dont le pseudo commence par [query] (3 car. min, 10 max)
+  static Future<List<({String pseudo, String? avatarUrl})>> searchSenoUsers(
+      String query) async {
+    final rows = await client!
+        .rpc('search_seno_users', params: {'p_query': query}) as List<dynamic>;
+    return [
+      for (final r in rows.cast<Map<String, dynamic>>())
+        (pseudo: r['pseudo'] as String, avatarUrl: r['avatar_url'] as String?),
+    ];
+  }
+
+  /// Comptes de réception d'un utilisateur Seno (numéro masqué, défaut en
+  /// tête). Hors ligne : dernière copie enregistrée pour ce pseudo.
+  static Future<
+      List<
+          ({
+            String id,
+            String idReseau,
+            String numeroMasque,
+            bool isDefault
+          })>> getSenoUserComptes(String pseudo) => CacheStore.cached(
+        name: 'seno_user_comptes:${pseudo.toLowerCase()}',
+        userId: client?.auth.currentUser?.id,
+        fetch: () async {
+          final rows = await client!.rpc('get_seno_user_comptes',
+              params: {'p_pseudo': pseudo}) as List<dynamic>;
+          return [
+            for (final r in rows.cast<Map<String, dynamic>>())
+              (
+                id: r['id'] as String,
+                idReseau: r['id_reseau'] as String,
+                numeroMasque: r['numero_masque'] as String,
+                isDefault: r['is_default'] as bool,
+              ),
+          ];
+        },
+        encode: (comptes) => [
+          for (final c in comptes)
+            {
+              'id': c.id,
+              'id_reseau': c.idReseau,
+              'numero_masque': c.numeroMasque,
+              'is_default': c.isDefault,
+            },
+        ],
+        decode: (json) => [
+          for (final r in (json as List).cast<Map<String, dynamic>>())
+            (
+              id: r['id'] as String,
+              idReseau: r['id_reseau'] as String,
+              numeroMasque: r['numero_masque'] as String,
+              isDefault: r['is_default'] as bool,
+            ),
+        ],
+      );
+
   /// Vérifie qu'aucun profil n'utilise déjà ce pseudo
   static Future<bool> isPseudoAvailable(String pseudo) async {
     final result =
@@ -526,10 +658,19 @@ class SupabaseService {
         userId: client?.auth.currentUser?.id,
         fetch: _getComptesRemote,
         encode: (v) => v.map((c) => c.toJson()).toList(),
-        decode: (j) => (j as List)
-            .map((e) => Compte.fromJson(e as Map<String, dynamic>))
-            .toList(),
+        decode: _decodeComptes,
       );
+
+  /// Dernière copie des comptes, sans attendre le réseau
+  static List<Compte>? peekComptes() => CacheStore.peek(
+        name: 'comptes',
+        userId: client?.auth.currentUser?.id,
+        decode: _decodeComptes,
+      );
+
+  static List<Compte> _decodeComptes(Object? j) => (j as List)
+      .map((e) => Compte.fromJson(e as Map<String, dynamic>))
+      .toList();
 
   static const _compteColumns =
       'id, proprietaire, numero, id_reseau, created_at, updated_at';
@@ -564,6 +705,13 @@ class SupabaseService {
     return row == null ? null : Compte.fromJson(row);
   }
 
+  /// Après une modification de compte : pas de copie périmée hors ligne
+  static Future<void> _invalidateComptesCache() async {
+    final userId = client?.auth.currentUser?.id;
+    await CacheStore.remove(userId, 'comptes');
+    await CacheStore.remove(userId, 'default_compte');
+  }
+
   /// Définir un compte comme compte par défaut
   static Future<void> setDefaultCompte({
     required String compteId,
@@ -572,6 +720,7 @@ class SupabaseService {
     try {
       await client!
           .rpc('set_default_compte', params: {'p_compte_id': compteId});
+      await _invalidateComptesCache();
       if (context != null && context.mounted) {
         ToastService.showInfo(context, 'Compte défini comme compte par défaut');
       }
@@ -615,6 +764,7 @@ class SupabaseService {
       'otp': otp,
       'set_as_default': setAsDefault,
     });
+    await _invalidateComptesCache();
     return Compte.fromJson(Map<String, dynamic>.from(res['compte'] as Map));
   }
 
@@ -630,6 +780,7 @@ class SupabaseService {
         'token': verificationToken,
         'otp': otp,
       });
+      await _invalidateComptesCache();
       if (context != null && context.mounted) {
         ToastService.showInfo(context, 'Compte modifié avec succès');
       }
@@ -649,6 +800,7 @@ class SupabaseService {
   }) async {
     try {
       await client!.from('comptes').delete().eq('id', compteId);
+      await _invalidateComptesCache();
       if (context != null && context.mounted) {
         ToastService.showInfo(context, 'Compte supprimé avec succès');
       }
@@ -660,6 +812,129 @@ class SupabaseService {
       throw Exception('Erreur lors de la suppression du compte: $e');
     }
   }
+
+  // ---------- Envoi d'argent (Jèko) ----------
+
+  /// Lance un envoi : collecte Jèko sur [compteId], puis reversement au
+  /// destinataire ([toCompteId] d'un utilisateur Seno, sinon [toNumero] + [toReseauId]).
+  /// Renvoie l'id de l'envoi et l'URL de validation opérateur (USSD / Wave).
+  /// [idempotencyKey] (UUID) : la même clé renvoie l'envoi déjà créé au lieu
+  /// d'en créer un second (double tap, renvoi après timeout).
+  static Future<({String id, String redirectUrl})> sendMoney({
+    required String idempotencyKey,
+    required String compteId,
+    required int amount,
+    required bool senderPaysFees,
+    required String label,
+    String? toCompteId,
+    String? toNumero,
+    String? toReseauId,
+  }) async {
+    final res = await _invokeAuth('transfer', {
+      'action': 'create',
+      'idempotency_key': idempotencyKey,
+      'compte_id': compteId,
+      'amount': amount,
+      'sender_pays_fees': senderPaysFees,
+      'label': label,
+      if (toCompteId != null) 'to_compte_id': toCompteId,
+      if (toNumero != null) 'to_numero': toNumero,
+      if (toReseauId != null) 'to_reseau_id': toReseauId,
+    });
+    return (id: res['id'] as String, redirectUrl: res['redirect_url'] as String);
+  }
+
+  /// Statut d'un envoi (le serveur interroge Jèko si le webhook tarde)
+  static Future<String> getTransfertStatus(String id) async {
+    final res = await _invokeAuth('transfer', {'action': 'status', 'id': id});
+    return res['statut'] as String;
+  }
+
+  /// UUID v4 aléatoire (clé d'idempotence des envois)
+  static String newIdempotencyKey() {
+    final rnd = Random.secure();
+    final b = List<int>.generate(16, (_) => rnd.nextInt(256));
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    final h = b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+    return '${h.substring(0, 8)}-${h.substring(8, 12)}-${h.substring(12, 16)}-'
+        '${h.substring(16, 20)}-${h.substring(20)}';
+  }
+
+  /// Incrémenté quand un envoi se termine : l'historique se recharge
+  static final transactionsRevision = ValueNotifier<int>(0);
+
+  static RealtimeChannel? _transactionsChannel;
+
+  /// Écoute le canal privé de l'utilisateur : chaque envoi / réception qui
+  /// change de statut recharge l'historique. Une seule connexion à la fois.
+  static void subscribeTransactions() {
+    final supabase = client;
+    final userId = supabase?.auth.currentUser?.id;
+    if (supabase == null || userId == null || _transactionsChannel != null) {
+      return;
+    }
+    _transactionsChannel = supabase
+        .channel(
+          'transactions:$userId',
+          opts: const RealtimeChannelConfig(private: true),
+        )
+        .onBroadcast(
+          event: 'transfert',
+          callback: (_) => transactionsRevision.value++,
+        )
+        .subscribe();
+  }
+
+  /// App en arrière-plan / déconnexion : libère la connexion Realtime
+  static Future<void> unsubscribeTransactions() async {
+    final channel = _transactionsChannel;
+    _transactionsChannel = null;
+    if (channel != null) await client?.removeChannel(channel);
+  }
+
+  /// Historique : envois et réceptions, du plus récent au plus ancien
+  /// Page de l'historique, du plus récent au plus ancien.
+  /// [before] : curseur (date de la dernière ligne déjà affichée) pour la page
+  /// suivante ; [sens] : 'envoi', 'reception' ou null (tous).
+  /// Seule la première page est gardée en cache ([cacheName], une copie par écran).
+  static Future<List<SenoTransaction>> getTransactions({
+    int limit = 50,
+    String cacheName = 'transactions',
+    DateTime? before,
+    String? sens,
+  }) {
+    Future<List<SenoTransaction>> fetch() async {
+      final rows = await client!.rpc('get_my_transactions', params: {
+        'p_limit': limit,
+        if (before != null) 'p_before': before.toUtc().toIso8601String(),
+        if (sens != null) 'p_sens': sens,
+      }) as List;
+      return _decodeTransactions(rows);
+    }
+
+    if (before != null) return fetch();
+    return CacheStore.cached<List<SenoTransaction>>(
+      name: cacheName,
+      userId: client?.auth.currentUser?.id,
+      fetch: fetch,
+      encode: (v) => v.map((t) => t.toJson()).toList(),
+      decode: _decodeTransactions,
+    );
+  }
+
+  /// Dernière copie de l'historique, sans attendre le réseau
+  static List<SenoTransaction>? peekTransactions(
+          {String cacheName = 'transactions'}) =>
+      CacheStore.peek(
+        name: cacheName,
+        userId: client?.auth.currentUser?.id,
+        decode: _decodeTransactions,
+      );
+
+  static List<SenoTransaction> _decodeTransactions(Object? j) => (j as List)
+      .map((e) => SenoTransaction.fromJson(e as Map<String, dynamic>))
+      .toList();
 }
 
 /// Erreur renvoyée par les fonctions d'authentification (code d'erreur serveur)
@@ -745,4 +1020,83 @@ class QrPayee {
       payeeRef: json['payee_ref'] as String,
     );
   }
+}
+
+/// Ligne de l'historique (envoi ou réception)
+class SenoTransaction {
+  final String id;
+  final bool isReceived;
+
+  /// Pseudo de l'autre partie, sinon nom / numéro saisi
+  final String label;
+  final String? avatarUrl;
+
+  /// FCFA : débité (envoi, frais inclus) ou reçu (réception)
+  final int montant;
+  final int frais;
+
+  /// collecte_en_attente, collecte_echec, transfert_en_cours, reussi, transfert_echec
+  final String statut;
+  final DateTime createdAt;
+
+  /// FCFA reçus par le destinataire
+  final int montantRecu;
+
+  /// Numéro de réception (masqué si c'est le compte d'un autre utilisateur)
+  final String numero;
+  final String reseauId;
+
+  /// Envoi en attente (Wave / Orange) : page de validation du paiement
+  final String? paymentUrl;
+
+  const SenoTransaction({
+    required this.id,
+    required this.isReceived,
+    required this.label,
+    required this.avatarUrl,
+    required this.montant,
+    required this.frais,
+    required this.statut,
+    required this.createdAt,
+    required this.montantRecu,
+    required this.numero,
+    required this.reseauId,
+    this.paymentUrl,
+  });
+
+  /// Ligne de get_my_transactions (même format que le cache)
+  factory SenoTransaction.fromJson(Map<String, dynamic> r) => SenoTransaction(
+        id: r['id'] as String,
+        isReceived: r['sens'] == 'reception',
+        label: r['label'] as String,
+        avatarUrl: r['avatar_url'] as String?,
+        montant: r['montant'] as int,
+        frais: r['frais'] as int,
+        statut: r['statut'] as String,
+        createdAt: DateTime.parse(r['created_at'] as String).toLocal(),
+        montantRecu: r['montant_recu'] as int,
+        numero: r['numero'] as String,
+        reseauId: r['reseau_id'] as String,
+        paymentUrl: r['payment_url'] as String?,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'sens': isReceived ? 'reception' : 'envoi',
+        'label': label,
+        'avatar_url': avatarUrl,
+        'montant': montant,
+        'frais': frais,
+        'statut': statut,
+        'created_at': createdAt.toUtc().toIso8601String(),
+        'montant_recu': montantRecu,
+        'numero': numero,
+        'reseau_id': reseauId,
+        'payment_url': paymentUrl,
+      };
+
+  bool get isFailed =>
+      statut == 'collecte_echec' || statut == 'transfert_echec';
+  bool get isPending =>
+      statut == 'collecte_en_attente' || statut == 'transfert_en_cours';
 }
