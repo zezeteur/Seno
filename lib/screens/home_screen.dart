@@ -183,18 +183,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     // Navbar flottante : barre système + bouton (56) + marges (8 + 32)
     final bottomPadding = MediaQuery.viewPaddingOf(context).bottom + 96;
 
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          // Carte de solde jaune
-          _buildBalanceCard(context),
-
-          // Dernières transactions + accès à l'historique
-          _buildTransactionsSection(context),
-          // Fin de page : rien n'est caché derrière la navbar
-          SizedBox(height: bottomPadding + 40),
-        ],
-      ),
+    return Column(
+      children: [
+        // Carte de solde jaune : fixe en haut
+        _buildBalanceCard(context),
+        // Dernières transactions + accès à l'historique : seules à défiler
+        Expanded(
+          child: CustomScrollView(
+            slivers: [
+              ..._buildTransactionsSlivers(context),
+              // Fin de page : rien n'est caché derrière la navbar
+              SliverToBoxAdapter(child: SizedBox(height: bottomPadding + 40)),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -476,6 +479,54 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// Nombre de transactions affichées sur l'accueil (le reste : historique)
   static const _homeTransactionsCount = 10;
 
+  /// Transactions en slivers : la date du groupe reste fixe en haut
+  List<Widget> _buildTransactionsSlivers(BuildContext context) {
+    final transactions = _transactions;
+    if (transactions == null || transactions.isEmpty) {
+      return [SliverToBoxAdapter(child: _buildTransactionsSection(context))];
+    }
+    return [
+      TransactionSliverList(
+        transactions: transactions.take(_homeTransactionsCount).toList(),
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+      ),
+      SliverToBoxAdapter(child: _buildHistoryButton(context)),
+    ];
+  }
+
+  /// Toutes les transactions, avec filtres (largeur du contenu)
+  Widget _buildHistoryButton(BuildContext context) {
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Center(
+        child: OutlinedButton.icon(
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const HistoryScreen()),
+          ),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: onSurface,
+            side: BorderSide(color: onSurface.withValues(alpha: 0.15)),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(50)),
+          ),
+          icon: HugeIcon(
+            icon: HugeIcons.strokeRoundedClock01,
+            size: 18,
+            color: onSurface,
+          ),
+          label: Text(
+            context.tr('history'),
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Chargement, erreur ou liste vide
   Widget _buildTransactionsSection(BuildContext context) {
     final onSurface = Theme.of(context).colorScheme.onSurface;
     final transactions = _transactions;
@@ -512,40 +563,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         child: CircularProgressIndicator(strokeWidth: 2)),
                   )
           else if (transactions.isEmpty)
-            message(context.tr('tx_empty'))
-          else ...[
-            TransactionList(
-              transactions: transactions.take(_homeTransactionsCount).toList(),
-            ),
-            // Toutes les transactions, avec filtres (largeur du contenu)
-            Center(
-              child: OutlinedButton.icon(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const HistoryScreen()),
-                ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: onSurface,
-                  side: BorderSide(color: onSurface.withValues(alpha: 0.15)),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(50)),
-                ),
-                icon: HugeIcon(
-                  icon: HugeIcons.strokeRoundedClock01,
-                  size: 18,
-                  color: onSurface,
-                ),
-                label: Text(
-                  context.tr('history'),
-                  style: const TextStyle(
-                      fontSize: 15, fontWeight: FontWeight.w600),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-          ],
+            message(context.tr('tx_empty')),
         ],
       ),
     );

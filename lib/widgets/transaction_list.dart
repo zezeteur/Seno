@@ -57,6 +57,69 @@ class TransactionList extends StatelessWidget {
   }
 }
 
+/// Même liste en slivers : la date du jour reste épinglée en haut tant que
+/// ses transactions défilent, puis la suivante la pousse.
+class TransactionSliverList extends StatelessWidget {
+  final List<SenoTransaction> transactions;
+  final EdgeInsetsGeometry padding;
+
+  const TransactionSliverList({
+    super.key,
+    required this.transactions,
+    this.padding = EdgeInsets.zero,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        RecentsStore.phoneContacts,
+        RecentsStore.senoAccounts,
+      ]),
+      builder: (context, _) {
+        final groups = <(String, List<SenoTransaction>)>[];
+        for (final tx in transactions) {
+          final day = TransactionList.dayLabel(context, tx.createdAt);
+          if (groups.isEmpty || groups.last.$1 != day) groups.add((day, []));
+          groups.last.$2.add(tx);
+        }
+        final background = Theme.of(context).scaffoldBackgroundColor;
+        return SliverPadding(
+          padding: padding,
+          sliver: SliverMainAxisGroup(
+            slivers: [
+              for (final (day, txs) in groups)
+                SliverMainAxisGroup(
+                  slivers: [
+                    // Fond opaque : les transactions passent dessous
+                    PinnedHeaderSliver(
+                      child: ColoredBox(
+                        color: background,
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 4, bottom: 16),
+                          child: TransactionsHeader(label: day),
+                        ),
+                      ),
+                    ),
+                    SliverList.list(
+                      children: [
+                        for (final tx in txs) ...[
+                          TransactionTile(transaction: tx),
+                          const SizedBox(height: 20),
+                        ],
+                        const SizedBox(height: 12),
+                      ],
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
 /// En-tête de groupe (jour) ou de section
 class TransactionsHeader extends StatelessWidget {
   final String label;
