@@ -35,8 +35,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _currentIndex = widget.initialIndex;
     _loadFirstName();
     SupabaseService.profileRevision.addListener(_loadFirstName);
-    _loadMerchant();
-    SupabaseService.merchantRevision.addListener(_loadMerchant);
     RecentsStore.load();
     // Récents : dernières copies, puis mise à jour silencieuse en fond
     RecentsStore.refresh();
@@ -63,7 +61,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     SupabaseService.profileRevision.removeListener(_loadFirstName);
-    SupabaseService.merchantRevision.removeListener(_loadMerchant);
     SupabaseService.transactionsRevision.removeListener(_loadTransactions);
     SupabaseService.unsubscribeTransactions();
     super.dispose();
@@ -90,19 +87,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (mounted && id == _transactionsLoadId) {
         setState(() => _transactionsError = true);
       }
-    }
-  }
-
-  /// Marchand : boutons Envoyer + Encaisser, récents en dessous
-  /// (copie en cache tout de suite, puis version fraîche)
-  bool _isMerchant = SupabaseService.peekMyMerchant() != null;
-
-  Future<void> _loadMerchant() async {
-    try {
-      final merchant = await SupabaseService.getMyMerchant();
-      if (mounted) setState(() => _isMerchant = merchant != null);
-    } catch (_) {
-      // Hors ligne : dernière valeur connue
     }
   }
 
@@ -332,61 +316,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   final recents = RecentsStore.recents.value;
                   final contacts = RecentsStore.phoneContacts.value;
                   final seno = RecentsStore.senoAccounts.value;
-                  if (_isMerchant) {
-                    return _buildMerchantActions(
-                        context, recents, contacts, seno);
-                  }
-                  // Aucun récent : le bouton d'envoi occupe toute la largeur
-                  if (recents.isEmpty) {
-                    return SizedBox(
-                      height: 80,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
-                        child: _buildSendContact(
-                          context,
-                          icon: HugeIcons.strokeRoundedArrowRight01,
-                          label: context.tr('send'),
-                          isIcon: true,
-                          fullWidth: true,
-                        ),
-                      ),
-                    );
-                  }
-                  return SizedBox(
-                    height: 80,
-                    child: ClipRect(
-                      clipBehavior: Clip.hardEdge,
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24),
-                          child: Row(
-                            children: [
-                              _buildSendContact(
-                                context,
-                                icon: HugeIcons.strokeRoundedArrowRight01,
-                                label: context.tr('send'),
-                                isIcon: true,
-                              ),
-                              for (final r in recents.take(3)) ...[
-                                const SizedBox(width: 12),
-                                _buildSendContact(
-                                  context,
-                                  icon: HugeIcons.strokeRoundedAiUser,
-                                  label: RecentsStore.contactName(
-                                          r, contacts, seno) ??
-                                      r.value,
-                                  isIcon: false,
-                                  avatarUrl: r.avatarUrl,
-                                  recipient: r,
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
+                  return _buildMerchantActions(
+                      context, recents, contacts, seno);
                 },
               ),
               const SizedBox(height: 20),
@@ -397,7 +328,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  /// Marchand : Envoyer et Encaisser côte à côte, récents en dessous
+  /// Envoyer et Encaisser côte à côte (pour tous), récents en dessous
   Widget _buildMerchantActions(
     BuildContext context,
     List<RecentRecipient> recents,

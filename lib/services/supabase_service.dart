@@ -186,6 +186,24 @@ class SupabaseService {
     return payload;
   }
 
+  /// QR fixe de la boutique (une boutique n'a pas de QR dynamique)
+  static Future<String> getMerchantQr() => CacheStore.cached<String>(
+        name: 'qr_merchant',
+        userId: client?.auth.currentUser?.id,
+        fetch: () async =>
+            (await _invokeAuth('qr-code', {'action': 'merchant_static'}))[
+                'payload'] as String,
+        encode: (v) => v,
+        decode: (j) => j as String,
+      );
+
+  /// QR de la boutique déjà en cache, instantané
+  static String? peekMerchantQr() => CacheStore.peek<String>(
+        name: 'qr_merchant',
+        userId: client?.auth.currentUser?.id,
+        decode: (j) => j as String,
+      );
+
   /// QR dynamique : valable ~90 s, à rafraîchir avant [expiresAt]
   static Future<({String payload, DateTime expiresAt})> getDynamicQr() async {
     final res = await _invokeAuth('qr-code', {'action': 'dynamic'});

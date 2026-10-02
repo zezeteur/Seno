@@ -1,9 +1,15 @@
 import 'dart:async';
+import 'dart:math';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:gal/gal.dart';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../l10n/app_strings.dart';
 import '../models/merchant_category.dart';
@@ -23,19 +29,32 @@ class MerchantProfileScreen extends StatefulWidget {
   State<MerchantProfileScreen> createState() => _MerchantProfileScreenState();
 }
 
-class _MerchantProfileScreenState extends State<MerchantProfileScreen> {
+class _MerchantProfileScreenState extends State<MerchantProfileScreen>
+    with SingleTickerProviderStateMixin {
+  // Onglets : QR code / Informations
+  late final _tabController = TabController(length: 2, vsync: this)
+    ..addListener(() => setState(() {}));
   MerchantInfo? _merchant;
   // Préchargé pour ouvrir la modale du pseudo sans loader (null = pas encore connu)
   ({DateTime? value})? _nextPseudoChange;
   bool _uploadingLogo = false;
   // Valeur affichée pendant l'enregistrement (null = celle de la boutique)
   bool? _activePending;
+  // QR fixe de la boutique (null = pas encore chargé)
+  String? _qrPayload;
+  // Carte du QR capturée en image pour l'enregistrer ou la partager
+  final _qrKey = GlobalKey();
+  bool _savingQr = false;
+  bool _sharingQr = false;
+  // Image d'export (QR + nom + déco) dessinée hors écran le temps de la capture
+  bool _exporting = false;
 
   @override
   void initState() {
     super.initState();
     // Boutique en cache affichée tout de suite, puis version fraîche
     _merchant = SupabaseService.peekMyMerchant();
+    _qrPayload = SupabaseService.peekMerchantQr();
     _load();
     SupabaseService.merchantRevision.addListener(_load);
   }
@@ -43,6 +62,7 @@ class _MerchantProfileScreenState extends State<MerchantProfileScreen> {
   @override
   void dispose() {
     SupabaseService.merchantRevision.removeListener(_load);
+    _tabController.dispose();
     super.dispose();
   }
 
@@ -58,6 +78,13 @@ class _MerchantProfileScreenState extends State<MerchantProfileScreen> {
       if (mounted) setState(() => _nextPseudoChange = (value: next));
     } catch (_) {
       // Hors ligne : dernières infos affichées
+    }
+    if (_qrPayload != null) return;
+    try {
+      final qr = await SupabaseService.getMerchantQr();
+      if (mounted) setState(() => _qrPayload = qr);
+    } catch (_) {
+      // Hors ligne : QR affiché au prochain chargement
     }
   }
 
@@ -363,6 +390,397 @@ class _MerchantProfileScreenState extends State<MerchantProfileScreen> {
     );
   }
 
+  /// Image d'export en PNG : QR, nom, pseudo et icônes de déco aléatoires
+  Future<Uint8List?> _captureQr() async {
+    // Logos chargés avant la capture : sinon absents de l'image
+    await precacheImage(const AssetImage(_appLogo), context);
+    if (!mounted) return null;
+    if (_hasLogo) {
+      try {
+        await precacheImage(NetworkImage(_merchant!.logoUrl!), context);
+      } catch (_) {
+        // Logo indisponible : image sans logo
+      }
+    }
+    if (!mounted) return null;
+    setState(() => _exporting = true);
+    try {
+      // Attend que l'image d'export soit dessinée (hors écran)
+      await WidgetsBinding.instance.endOfFrame;
+      final boundary =
+          _qrKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
+      // Haute résolution : QR net une fois imprimé
+      final image = await boundary.toImage(pixelRatio: 3);
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+      image.dispose();
+      return bytes?.buffer.asUint8List();
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
+  String get _qrFileName => 'qr-${_merchant?.pseudo ?? 'boutique'}.png';
+
+  Future<void> _saveQr() async {
+    HapticFeedback.lightImpact();
+    setState(() => _savingQr = true);
+    try {
+      final bytes = await _captureQr();
+      if (bytes == null) return;
+      if (!await Gal.hasAccess() && !await Gal.requestAccess()) {
+        if (mounted) {
+          ToastService.showError(context, context.tr('merchant_qr_save_error'));
+        }
+        return;
+      }
+      await Gal.putImageBytes(bytes, name: _qrFileName.replaceAll('.png', ''));
+      if (mounted) {
+        ToastService.showSuccess(context, context.tr('merchant_qr_saved'));
+      }
+    } catch (_) {
+      if (mounted) {
+        ToastService.showError(context, context.tr('merchant_qr_save_error'));
+      }
+    } finally {
+      if (mounted) setState(() => _savingQr = false);
+    }
+  }
+
+  Future<void> _shareQr() async {
+    HapticFeedback.lightImpact();
+    setState(() => _sharingQr = true);
+    try {
+      final bytes = await _captureQr();
+      if (bytes == null || !mounted) return;
+      final box = context.findRenderObject() as RenderBox?;
+      await SharePlus.instance.share(ShareParams(
+        files: [
+          XFile.fromData(bytes, mimeType: 'image/png', name: _qrFileName)
+        ],
+        fileNameOverrides: [_qrFileName],
+        // iPad : ancre de la feuille de partage
+        sharePositionOrigin:
+            box != null ? box.localToGlobal(Offset.zero) & box.size : null,
+      ));
+    } catch (_) {
+      if (mounted) {
+        ToastService.showError(context, context.tr('tx_share_error'));
+      }
+    } finally {
+      if (mounted) setState(() => _sharingQr = false);
+    }
+  }
+
+  Widget _qrActionButton({
+    required String label,
+    required dynamic icon,
+    required bool loading,
+    required bool dark,
+    required VoidCallback onPressed,
+  }) {
+    final fg = dark ? Colors.white : Theme.of(context).colorScheme.onSurface;
+    // Désactivé tant que le QR n'est pas chargé ou qu'une action est en cours
+    final disabled = _qrPayload == null || _savingQr || _sharingQr;
+    return ElevatedButton(
+      onPressed: disabled ? null : onPressed,
+      style: ElevatedButton.styleFrom(
+        overlayColor: Colors.transparent,
+        backgroundColor:
+            dark ? Colors.black : Theme.of(context).colorScheme.surface,
+        foregroundColor: fg,
+        elevation: 0,
+        padding: const EdgeInsets.symmetric(vertical: 18),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(50)),
+      ),
+      child: loading
+          ? SizedBox(
+              height: 20,
+              width: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(fg),
+              ),
+            )
+          : Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                HugeIcon(icon: icon, size: 20, color: fg),
+                const SizedBox(width: 8),
+                Text(
+                  label,
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildQrActions() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: _qrActionButton(
+              label: context.tr('save'),
+              icon: HugeIcons.strokeRoundedDownload04,
+              loading: _savingQr,
+              dark: false,
+              onPressed: _saveQr,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _qrActionButton(
+              label: context.tr('share'),
+              icon: HugeIcons.strokeRoundedShare08,
+              loading: _sharingQr,
+              dark: true,
+              onPressed: _shareQr,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// QR fixe de la boutique : pas de QR dynamique pour un marchand
+  Widget _buildQrCard() {
+    final payload = _qrPayload;
+    final card = Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: AppColors.primary,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        children: [
+          // Marge blanche autour du QR : coins arrondis sans rogner les repères
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: SizedBox(
+              width: 200,
+              height: 200,
+              child: payload == null
+                  ? const Center(child: CircularProgressIndicator())
+                  : QrImageView(
+                      data: payload,
+                      version: QrVersions.auto,
+                      size: 200,
+                      padding: EdgeInsets.zero,
+                      backgroundColor: Colors.white,
+                      eyeStyle: const QrEyeStyle(
+                        eyeShape: QrEyeShape.circle,
+                        color: Colors.black,
+                      ),
+                      dataModuleStyle: const QrDataModuleStyle(
+                        dataModuleShape: QrDataModuleShape.circle,
+                        color: Colors.black,
+                      ),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            context.tr('merchant_qr_title'),
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: Colors.black,
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            context.tr('merchant_qr_hint'),
+            textAlign: TextAlign.center,
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: Colors.black54),
+          ),
+        ],
+      ),
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      child: card,
+    );
+  }
+
+  /// Onglets en pilule, même style que l'écran QR
+  Widget _buildTabBar() {
+    const labelStyle = TextStyle(fontSize: 16, fontWeight: FontWeight.bold);
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(50),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(50),
+        child: TabBar(
+          controller: _tabController,
+          indicatorSize: TabBarIndicatorSize.tab,
+          indicator: BoxDecoration(
+            color: AppColors.secondary,
+            borderRadius: BorderRadius.circular(50),
+          ),
+          dividerColor: Colors.transparent,
+          labelColor: Colors.white,
+          unselectedLabelColor: Theme.of(context).colorScheme.onSurface,
+          labelStyle: labelStyle,
+          unselectedLabelStyle: labelStyle,
+          tabs: [
+            Tab(text: context.tr('merchant_tab_qr')),
+            Tab(text: context.tr('merchant_tab_info')),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static const _appLogo = 'assets/images/seno-logo.png';
+
+  static const _decoIcons = [
+    HugeIcons.strokeRoundedStore01,
+    HugeIcons.strokeRoundedShoppingBag01,
+    HugeIcons.strokeRoundedShoppingCart01,
+    HugeIcons.strokeRoundedCoins01,
+    HugeIcons.strokeRoundedMoney03,
+    HugeIcons.strokeRoundedWallet01,
+    HugeIcons.strokeRoundedStar,
+    HugeIcons.strokeRoundedFavourite,
+    HugeIcons.strokeRoundedGift,
+    HugeIcons.strokeRoundedTag01,
+    HugeIcons.strokeRoundedSmile,
+    HugeIcons.strokeRoundedQrCode,
+  ];
+
+  /// Image partagée / enregistrée : fond jaune, icônes de déco au hasard
+  /// dans les marges, QR au centre, nom et pseudo de la boutique
+  Widget _buildExportImage(MerchantInfo m) {
+    const width = 360.0, height = 560.0;
+    final random = Random();
+    // Icônes seulement dans les bandes haut / bas : jamais sur le QR ni le texte
+    final deco = <Widget>[];
+    for (var i = 0; i < 14; i++) {
+      final top = i.isEven;
+      final size = 22.0 + random.nextDouble() * 18;
+      var left = random.nextDouble() * (width - size);
+      // Bande du haut : centre réservé au logo Seno
+      if (top && (left + size > width / 2 - 80 && left < width / 2 + 80)) {
+        left = left < width / 2 ? left - 80 - size / 2 : left + 80;
+        left = left.clamp(0.0, width - size);
+      }
+      deco.add(Positioned(
+        left: left,
+        top: top
+            ? random.nextDouble() * (70 - size / 2)
+            : height - 70 + random.nextDouble() * (70 - size),
+        child: Transform.rotate(
+          angle: (random.nextDouble() - 0.5) * 0.9,
+          child: HugeIcon(
+            icon: _decoIcons[random.nextInt(_decoIcons.length)],
+            size: size,
+            color: Colors.black
+                .withValues(alpha: 0.12 + random.nextDouble() * 0.1),
+          ),
+        ),
+      ));
+    }
+    return Container(
+      width: width,
+      height: height,
+      color: AppColors.primary,
+      child: Stack(
+        children: [
+          ...deco,
+          // Logo de l'app en haut
+          Positioned(
+            top: 22,
+            left: 0,
+            right: 0,
+            child: Center(child: Image.asset(_appLogo, height: 30)),
+          ),
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(28),
+                  ),
+                  child: QrImageView(
+                    data: _qrPayload!,
+                    version: QrVersions.auto,
+                    size: 220,
+                    padding: EdgeInsets.zero,
+                    backgroundColor: Colors.white,
+                    eyeStyle: const QrEyeStyle(
+                      eyeShape: QrEyeShape.circle,
+                      color: Colors.black,
+                    ),
+                    dataModuleStyle: const QrDataModuleStyle(
+                      dataModuleShape: QrDataModuleShape.circle,
+                      color: Colors.black,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                if (_hasLogo) ...[
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      image: DecorationImage(
+                        image: NetworkImage(m.logoUrl!),
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Text(
+                    m.businessName,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.black,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                if (m.pseudo != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    '@${m.pseudo}',
+                    style: const TextStyle(color: Colors.black54, fontSize: 16),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Text(
+                  context.tr('merchant_qr_scan_to_pay'),
+                  style: const TextStyle(color: Colors.black54, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _section(List<Widget> children) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -385,165 +803,201 @@ class _MerchantProfileScreenState extends State<MerchantProfileScreen> {
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: Column(
+      body: Stack(
         children: [
-          SizedBox(height: mediaQuery.viewPadding.top),
-          // Header avec bouton retour
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Row(
-              children: [
-                IconButton(
-                  icon: Icon(Icons.arrow_back, color: onSurface),
-                  onPressed: () => Navigator.of(context).pop(),
+          // Hors écran : dessinée seulement pendant l'enregistrement / partage
+          if (_exporting && m != null && _qrPayload != null)
+            Positioned(
+              left: -10000,
+              top: 0,
+              child: RepaintBoundary(
+                key: _qrKey,
+                child: MediaQuery(
+                  data: mediaQuery.copyWith(textScaler: TextScaler.noScaling),
+                  child: _buildExportImage(m),
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  context.tr('my_shop'),
-                  style: textTheme.headlineSmall?.copyWith(
-                    color: onSurface,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 28,
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
-          Expanded(
-            child: m == null
-                ? const Center(child: CircularProgressIndicator())
-                : SingleChildScrollView(
-                    child: Column(
-                      children: [
-                        _buildLogo(m),
-                        const SizedBox(height: 16),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
-                          child: Text(
-                            m.businessName,
-                            textAlign: TextAlign.center,
-                            style: textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: onSurface,
-                            ),
-                          ),
-                        ),
-                        if (m.pseudo != null) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            '@${m.pseudo}',
-                            style: textTheme.bodyMedium
-                                ?.copyWith(color: AppColors.textSecondary),
-                          ),
-                        ],
-                        const SizedBox(height: 16),
-                        _section([_buildActiveSwitch(m)]),
-                        _section([
-                          _buildMenuItem(
-                            icon: HugeIcons.strokeRoundedStore01,
-                            title: context.tr('merchant_business_name'),
-                            subtitle: m.businessName,
-                            onTap: () => _openEditor(
-                              context.tr('merchant_business_name'),
-                              _FieldsEditor(fields: [
-                                _Field('business_name',
-                                    'merchant_business_name', m.businessName,
-                                    min: 2,
-                                    max: 80,
-                                    capitalization: TextCapitalization.words),
-                              ]),
-                            ),
-                          ),
-                          divider,
-                          _buildMenuItem(
-                            icon: HugeIcons.strokeRoundedAt,
-                            title: context.tr('merchant_pseudo'),
-                            subtitle: m.pseudo == null ? null : '@${m.pseudo}',
-                            onTap: () => _openEditor(
-                              context.tr('merchant_pseudo'),
-                              _ShopPseudoEditor(
-                                pseudo: m.pseudo,
-                                nextChange: _nextPseudoChange,
+          Column(
+            children: [
+              SizedBox(height: mediaQuery.viewPadding.top),
+              // Header avec bouton retour
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: Icon(Icons.arrow_back, color: onSurface),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      context.tr('my_shop'),
+                      style: textTheme.headlineSmall?.copyWith(
+                        color: onSurface,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 28,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: m == null
+                    ? const Center(child: CircularProgressIndicator())
+                    : SingleChildScrollView(
+                        child: Column(
+                          children: [
+                            _buildLogo(m),
+                            const SizedBox(height: 16),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 20),
+                              child: Text(
+                                m.businessName,
+                                textAlign: TextAlign.center,
+                                style: textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: onSurface,
+                                ),
                               ),
                             ),
-                          ),
-                          divider,
-                          _buildMenuItem(
-                            icon: MerchantCategory.byId(m.category).icon,
-                            title: context.tr('merchant_category'),
-                            subtitle: context
-                                .tr(MerchantCategory.byId(m.category).labelKey),
-                            onTap: () => _openEditor(
-                              context.tr('merchant_category'),
-                              _CategoryEditor(selected: m.category),
-                            ),
-                          ),
-                          divider,
-                          _buildMenuItem(
-                            icon: HugeIcons.strokeRoundedNote,
-                            title: context.tr('merchant_description'),
-                            subtitle: m.description,
-                            onTap: () => _openEditor(
-                              context.tr('merchant_description'),
-                              _FieldsEditor(fields: [
-                                _Field('description', 'merchant_description',
-                                    m.description,
-                                    required: false, max: 300, maxLines: 3),
+                            if (m.pseudo != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                '@${m.pseudo}',
+                                style: textTheme.bodyMedium
+                                    ?.copyWith(color: AppColors.textSecondary),
+                              ),
+                            ],
+                            const SizedBox(height: 16),
+                            _buildTabBar(),
+                            if (_tabController.index == 0) ...[
+                              _buildQrCard(),
+                              _buildQrActions(),
+                            ] else ...[
+                              _section([_buildActiveSwitch(m)]),
+                              _section([
+                                _buildMenuItem(
+                                  icon: HugeIcons.strokeRoundedStore01,
+                                  title: context.tr('merchant_business_name'),
+                                  subtitle: m.businessName,
+                                  onTap: () => _openEditor(
+                                    context.tr('merchant_business_name'),
+                                    _FieldsEditor(fields: [
+                                      _Field(
+                                          'business_name',
+                                          'merchant_business_name',
+                                          m.businessName,
+                                          min: 2,
+                                          max: 80,
+                                          capitalization:
+                                              TextCapitalization.words),
+                                    ]),
+                                  ),
+                                ),
+                                divider,
+                                _buildMenuItem(
+                                  icon: HugeIcons.strokeRoundedAt,
+                                  title: context.tr('merchant_pseudo'),
+                                  subtitle:
+                                      m.pseudo == null ? null : '@${m.pseudo}',
+                                  onTap: () => _openEditor(
+                                    context.tr('merchant_pseudo'),
+                                    _ShopPseudoEditor(
+                                      pseudo: m.pseudo,
+                                      nextChange: _nextPseudoChange,
+                                    ),
+                                  ),
+                                ),
+                                divider,
+                                _buildMenuItem(
+                                  icon: MerchantCategory.byId(m.category).icon,
+                                  title: context.tr('merchant_category'),
+                                  subtitle: context.tr(
+                                      MerchantCategory.byId(m.category)
+                                          .labelKey),
+                                  onTap: () => _openEditor(
+                                    context.tr('merchant_category'),
+                                    _CategoryEditor(selected: m.category),
+                                  ),
+                                ),
+                                divider,
+                                _buildMenuItem(
+                                  icon: HugeIcons.strokeRoundedNote,
+                                  title: context.tr('merchant_description'),
+                                  subtitle: m.description,
+                                  onTap: () => _openEditor(
+                                    context.tr('merchant_description'),
+                                    _FieldsEditor(fields: [
+                                      _Field('description',
+                                          'merchant_description', m.description,
+                                          required: false,
+                                          max: 300,
+                                          maxLines: 3),
+                                    ]),
+                                  ),
+                                ),
                               ]),
-                            ),
-                          ),
-                        ]),
-                        _section([
-                          _buildMenuItem(
-                            icon: HugeIcons.strokeRoundedLocation01,
-                            title: context.tr('merchant_step_location'),
-                            subtitle: '${m.address}, ${m.city}',
-                            onTap: () => _openEditor(
-                              context.tr('merchant_step_location'),
-                              _FieldsEditor(fields: [
-                                _Field('city', 'merchant_city', m.city,
-                                    capitalization: TextCapitalization.words),
-                                _Field(
-                                    'address', 'merchant_address', m.address),
+                              _section([
+                                _buildMenuItem(
+                                  icon: HugeIcons.strokeRoundedLocation01,
+                                  title: context.tr('merchant_step_location'),
+                                  subtitle: '${m.address}, ${m.city}',
+                                  onTap: () => _openEditor(
+                                    context.tr('merchant_step_location'),
+                                    _FieldsEditor(fields: [
+                                      _Field('city', 'merchant_city', m.city,
+                                          capitalization:
+                                              TextCapitalization.words),
+                                      _Field('address', 'merchant_address',
+                                          m.address),
+                                    ]),
+                                  ),
+                                ),
+                                divider,
+                                _buildMenuItem(
+                                  icon: HugeIcons.strokeRoundedCall,
+                                  title: context.tr('merchant_phone'),
+                                  subtitle: m.businessPhone,
+                                  onTap: () => _openEditor(
+                                    context.tr('merchant_phone'),
+                                    _FieldsEditor(fields: [
+                                      _Field('business_phone', 'merchant_phone',
+                                          m.businessPhone,
+                                          keyboardType: TextInputType.phone,
+                                          capitalization:
+                                              TextCapitalization.none),
+                                    ]),
+                                  ),
+                                ),
+                                divider,
+                                _buildMenuItem(
+                                  icon: HugeIcons.strokeRoundedMail01,
+                                  title: context.tr('merchant_email'),
+                                  subtitle: m.email,
+                                  onTap: () => _openEditor(
+                                    context.tr('merchant_email'),
+                                    _FieldsEditor(fields: [
+                                      _Field('email', 'merchant_email', m.email,
+                                          required: false,
+                                          email: true,
+                                          keyboardType:
+                                              TextInputType.emailAddress,
+                                          capitalization:
+                                              TextCapitalization.none),
+                                    ]),
+                                  ),
+                                ),
                               ]),
-                            ),
-                          ),
-                          divider,
-                          _buildMenuItem(
-                            icon: HugeIcons.strokeRoundedCall,
-                            title: context.tr('merchant_phone'),
-                            subtitle: m.businessPhone,
-                            onTap: () => _openEditor(
-                              context.tr('merchant_phone'),
-                              _FieldsEditor(fields: [
-                                _Field('business_phone', 'merchant_phone',
-                                    m.businessPhone,
-                                    keyboardType: TextInputType.phone,
-                                    capitalization: TextCapitalization.none),
-                              ]),
-                            ),
-                          ),
-                          divider,
-                          _buildMenuItem(
-                            icon: HugeIcons.strokeRoundedMail01,
-                            title: context.tr('merchant_email'),
-                            subtitle: m.email,
-                            onTap: () => _openEditor(
-                              context.tr('merchant_email'),
-                              _FieldsEditor(fields: [
-                                _Field('email', 'merchant_email', m.email,
-                                    required: false,
-                                    email: true,
-                                    keyboardType: TextInputType.emailAddress,
-                                    capitalization: TextCapitalization.none),
-                              ]),
-                            ),
-                          ),
-                        ]),
-                        SizedBox(height: mediaQuery.viewPadding.bottom + 16),
-                      ],
-                    ),
-                  ),
+                            ],
+                            SizedBox(
+                                height: mediaQuery.viewPadding.bottom + 16),
+                          ],
+                        ),
+                      ),
+              ),
+            ],
           ),
         ],
       ),

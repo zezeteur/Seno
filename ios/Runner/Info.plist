@@ -45,6 +45,8 @@
 	<string>Seno utilise vos contacts pour trouver rapidement à qui envoyer de l'argent.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Face ID permet de déverrouiller Seno rapidement et en toute sécurité.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Seno enregistre le QR code de votre boutique dans vos photos.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Cette application a besoin d'accéder à vos photos pour choisir votre photo de profil.</string>
 	<key>UIApplicationSceneManifest</key>

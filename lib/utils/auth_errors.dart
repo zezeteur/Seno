@@ -26,6 +26,8 @@ String authErrorMessage(BuildContext context, Object e) {
         return context.tr('birth_date_wrong', {'count': '${e.remaining ?? 0}'});
       case 'qr_invalid':
         return context.tr('qr_invalid');
+      case 'shop_inactive':
+        return context.tr('shop_inactive');
       case 'qr_expired':
         return context.tr('qr_expired');
       case 'compte_exists':

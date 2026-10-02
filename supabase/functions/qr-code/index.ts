@@ -3,6 +3,7 @@ import { SupabaseClient, createClient } from 'npm:@supabase/supabase-js@2';
 // QR codes de paiement Seno
 //  - fixe     : SENO1:S:<jeton aléatoire>          (carte physique, régénérable)
 //  - dynamique: SENO1:D:<jeton court aléatoire>     (dans l'app, expire en 90 s)
+//  - boutique : SENO1:M:<jeton aléatoire>          (fixe, jamais dynamique)
 // Le scan est résolu uniquement ici : jamais d'identifiant utilisateur en clair.
 
 const PREFIX = 'SENO1';
@@ -64,8 +65,28 @@ async function staticToken(admin: SupabaseClient, userId: string, regenerate: bo
   return token;
 }
 
+async function merchantToken(admin: SupabaseClient, userId: string): Promise<string> {
+  const { data } = await admin.from('qr_merchant_codes').select('token').eq('user_id', userId).maybeSingle();
+  if (data) return data.token;
+  const token = newStaticToken();
+  const { error } = await admin.from('qr_merchant_codes')
+    .upsert({ user_id: userId, token, created_at: new Date().toISOString() });
+  if (error) throw error;
+  return token;
+}
+
 // 07 01 02 03 04 → 07 •• •• •• 04
 const maskNumero = (n: string) => `${n.slice(0, 2)} •• •• •• ${n.slice(-2)}`;
+
+// Compte de réception par défaut, numéro masqué
+async function compteOf(admin: SupabaseClient, compteId: string | null | undefined) {
+  if (!compteId) return null;
+  const { data } = await admin.from('comptes')
+    .select('numero, reseaux(nom, abreviation)').eq('id', compteId).maybeSingle();
+  const reseau = data?.reseaux as { nom: string; abreviation: string } | null;
+  if (!data || !reseau) return null;
+  return { numero_masque: maskNumero(data.numero), reseau: reseau.nom, abreviation: reseau.abreviation };
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -83,6 +104,13 @@ Deno.serve(async (req) => {
     if (body.action === 'static' || body.action === 'regenerate_static') {
       const token = await staticToken(admin, userId, body.action === 'regenerate_static');
       return json({ payload: `${PREFIX}:S:${token}` });
+    }
+
+    if (body.action === 'merchant_static') {
+      const { data: shop } = await admin.from('merchant_requests')
+        .select('user_id').eq('user_id', userId).maybeSingle();
+      if (!shop) return json({ error: 'not_merchant' }, 403);
+      return json({ payload: `${PREFIX}:M:${await merchantToken(admin, userId)}` });
     }
 
     if (body.action === 'dynamic') {
@@ -122,21 +150,34 @@ Deno.serve(async (req) => {
         }
         payeeId = data?.user_id ?? null;
       }
+      if (kind === 'M' && /^[0-9a-f]{32}$/.test(token)) {
+        // Boutique : payée par son pseudo, seulement si active
+        const { data: code } = await admin.from('qr_merchant_codes')
+          .select('user_id').eq('token', token).maybeSingle();
+        const { data: shop } = code ? await admin.from('merchant_requests')
+          .select('user_id, pseudo, business_name, logo_url, is_active')
+          .eq('user_id', code.user_id).maybeSingle() : { data: null };
+        if (!shop || !shop.pseudo) return json({ error: 'qr_invalid' }, 400);
+        if (!shop.is_active) return json({ error: 'shop_inactive' }, 400);
+        const { data: owner } = await admin.from('profiles')
+          .select('default_compte_id').eq('id', shop.user_id).maybeSingle();
+        return json({
+          pseudo: shop.pseudo,
+          prenom: shop.business_name,
+          avatar_url: shop.logo_url,
+          compte: await compteOf(admin, owner?.default_compte_id),
+          is_self: shop.user_id === userId,
+          is_merchant: true,
+          payee_ref: await seal({ u: shop.user_id, e: Math.floor(Date.now() / 1000) + PAYEE_REF_TTL_SECONDS, t: 'm' }),
+        });
+      }
       if (!payeeId) return json({ error: 'qr_invalid' }, 400);
 
       const { data: profile } = await admin.from('profiles')
         .select('pseudo, prenoms, avatar_url, default_compte_id').eq('id', payeeId).maybeSingle();
       if (!profile) return json({ error: 'qr_invalid' }, 400);
 
-      let compte = null;
-      if (profile.default_compte_id) {
-        const { data } = await admin.from('comptes')
-          .select('numero, reseaux(nom, abreviation)').eq('id', profile.default_compte_id).maybeSingle();
-        const reseau = data?.reseaux as { nom: string; abreviation: string } | null;
-        if (data && reseau) {
-          compte = { numero_masque: maskNumero(data.numero), reseau: reseau.nom, abreviation: reseau.abreviation };
-        }
-      }
+      const compte = await compteOf(admin, profile.default_compte_id);
 
       return json({
         pseudo: profile.pseudo,
