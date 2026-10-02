@@ -63,9 +63,10 @@ Deno.serve(async (req) => {
         if (!c) return json({ error: 'invalid_request' }, 400);
         dest = { compte: c.id, numero: c.numero, reseau: c.id_reseau };
         if (c.proprietaire !== userId) {
-          const { data: shop } = await admin
+          const { data: shop, error: shopError } = await admin
             .from('merchant_requests').select('user_id')
             .eq('user_id', c.proprietaire).eq('is_active', true).maybeSingle();
+          if (shopError) throw shopError;
           merchantPaysFees = shop !== null;
         }
       } else if (typeof to_numero === 'string' && /^\d{10}$/.test(to_numero) && typeof to_reseau_id === 'string') {

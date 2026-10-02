@@ -107,8 +107,9 @@ Deno.serve(async (req) => {
     }
 
     if (body.action === 'merchant_static') {
-      const { data: shop } = await admin.from('merchant_requests')
+      const { data: shop, error: shopError } = await admin.from('merchant_requests')
         .select('user_id').eq('user_id', userId).maybeSingle();
+      if (shopError) throw shopError;
       if (!shop) return json({ error: 'not_merchant' }, 403);
       return json({ payload: `${PREFIX}:M:${await merchantToken(admin, userId)}` });
     }
