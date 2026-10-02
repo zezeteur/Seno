@@ -15,6 +15,7 @@ import 'notifications_screen.dart';
 import 'help_support_screen.dart';
 import 'profile_screen.dart';
 import 'account_limits_screen.dart';
+import 'merchant_profile_screen.dart';
 import 'merchant_request_screen.dart';
 
 class AccountScreen extends StatefulWidget {
@@ -33,16 +34,24 @@ class _AccountScreenState extends State<AccountScreen> {
   String? _prenoms;
   String? _avatarUrl;
 
+  /// Boutique de l'utilisateur ; null s'il n'est pas marchand
+  MerchantInfo? _merchant;
+
   @override
   void initState() {
     super.initState();
+    // Boutique en cache affichée tout de suite, puis version fraîche
+    _merchant = SupabaseService.peekMyMerchant();
     _loadProfile();
+    _loadMerchant();
+    SupabaseService.merchantRevision.addListener(_loadMerchant);
     SupabaseService.profileRevision.addListener(_loadProfile);
   }
 
   @override
   void dispose() {
     SupabaseService.profileRevision.removeListener(_loadProfile);
+    SupabaseService.merchantRevision.removeListener(_loadMerchant);
     super.dispose();
   }
 
@@ -99,24 +108,108 @@ class _AccountScreenState extends State<AccountScreen> {
     }
   }
 
-  /// Formulaire marchand, sauf si une demande existe déjà
-  Future<void> _handleBecomeMerchant() async {
-    String? status;
+  Future<void> _loadMerchant() async {
     try {
-      status = await SupabaseService.getMerchantRequestStatus();
+      final merchant = await SupabaseService.getMyMerchant();
+      if (mounted) setState(() => _merchant = merchant);
     } catch (_) {
-      // Hors ligne : on laisse le formulaire gérer l'erreur à l'envoi
+      // Hors ligne : la carte « Devenir un marchand » reste affichée
     }
+  }
+
+  /// Formulaire marchand, sauf si le compte marchand existe déjà
+  Future<void> _handleBecomeMerchant() async {
+    await _loadMerchant();
     if (!mounted) return;
-    if (status == 'pending' || status == 'approved') {
-      ToastService.showInfo(
-          context,
-          context.tr(
-              status == 'pending' ? 'merchant_pending' : 'merchant_approved'));
+    if (_merchant != null) {
+      ToastService.showInfo(context, context.tr('merchant_approved'));
       return;
     }
-    Navigator.of(context).push(
+    // Les frais de transaction sont à la charge du marchand
+    final accepted = await showConfirmSheet(
+      context: context,
+      title: context.tr('merchant_fees_title'),
+      message: context.tr('merchant_fees_message'),
+      confirmLabel: context.tr('merchant_fees_accept'),
+    );
+    if (!accepted || !mounted) return;
+    final created = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => const MerchantRequestScreen()),
+    );
+    if (created == true) _loadMerchant();
+  }
+
+  /// Carte de la boutique, à la place de « Devenir un marchand »
+  Widget _buildMerchantCard(MerchantInfo merchant) {
+    final textTheme = Theme.of(context).textTheme;
+    final logoUrl = merchant.logoUrl;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      child: Material(
+        color: AppColors.secondary,
+        borderRadius: BorderRadius.circular(24),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(24),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const MerchantProfileScreen()),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    image: logoUrl == null
+                        ? null
+                        : DecorationImage(
+                            image: NetworkImage(logoUrl), fit: BoxFit.cover),
+                  ),
+                  child: logoUrl != null
+                      ? null
+                      : const Center(
+                          child: HugeIcon(
+                            icon: HugeIcons.strokeRoundedStore01,
+                            size: 28,
+                            color: AppColors.secondary,
+                          ),
+                        ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        merchant.businessName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: textTheme.bodyLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                          fontSize: 16,
+                        ),
+                      ),
+                      if (merchant.pseudo != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          '@${merchant.pseudo}',
+                          style: textTheme.bodySmall?.copyWith(
+                            color: Colors.white.withValues(alpha: 0.9),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -241,83 +334,86 @@ class _AccountScreenState extends State<AccountScreen> {
                 children: [
                   // Section profil
                   _buildProfileSection(),
-                  // Devenir un marchand
-                  Stack(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 20, vertical: 8),
-                        child: Material(
-                          color: AppColors.secondary,
-                          borderRadius: BorderRadius.circular(24),
-                          child: InkWell(
+                  // Boutique si l'utilisateur est marchand, sinon « Devenir un marchand »
+                  if (_merchant != null)
+                    _buildMerchantCard(_merchant!)
+                  else
+                    Stack(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 8),
+                          child: Material(
+                            color: AppColors.secondary,
                             borderRadius: BorderRadius.circular(24),
-                            onTap: _handleBecomeMerchant,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 20, vertical: 20),
-                              child: Row(
-                                children: [
-                                  const SizedBox(width: 80),
-                                  const SizedBox(width: 0),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          context.tr('become_merchant'),
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodyLarge
-                                              ?.copyWith(
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.white,
-                                                fontSize: 16,
-                                              ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          context.tr('accept_payments'),
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodySmall
-                                              ?.copyWith(
-                                                color: Colors.white
-                                                    .withOpacity(0.9),
-                                                fontSize: 12,
-                                              ),
-                                        ),
-                                      ],
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(24),
+                              onTap: _handleBecomeMerchant,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 20, vertical: 20),
+                                child: Row(
+                                  children: [
+                                    const SizedBox(width: 80),
+                                    const SizedBox(width: 0),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            context.tr('become_merchant'),
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodyLarge
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.white,
+                                                  fontSize: 16,
+                                                ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            context.tr('accept_payments'),
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall
+                                                ?.copyWith(
+                                                  color: Colors.white
+                                                      .withOpacity(0.9),
+                                                  fontSize: 12,
+                                                ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                  Icon(
-                                    Icons.arrow_forward_ios,
-                                    color: Colors.white,
-                                    size: 20,
-                                  ),
-                                ],
+                                    Icon(
+                                      Icons.arrow_forward_ios,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                      Positioned(
-                        left: 0,
-                        top: -43,
-                        child: IgnorePointer(
-                          child: Lottie.asset(
-                            'assets/jsons/OpenStore.json',
-                            key: _lottieKey,
-                            width: 150,
-                            height: 150,
-                            fit: BoxFit.contain,
-                            repeat: false,
+                        Positioned(
+                          left: 0,
+                          top: -43,
+                          child: IgnorePointer(
+                            child: Lottie.asset(
+                              'assets/jsons/OpenStore.json',
+                              key: _lottieKey,
+                              width: 150,
+                              height: 150,
+                              fit: BoxFit.contain,
+                              repeat: false,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    ),
                   // Options
                   Container(
                     margin:

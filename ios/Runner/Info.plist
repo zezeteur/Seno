@@ -2,8 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>NSFaceIDUsageDescription</key>
-	<string>Face ID permet de déverrouiller Seno rapidement et en toute sécurité.</string>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
@@ -22,9 +22,53 @@
 	<string>$(FLUTTER_BUILD_NAME)</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.neotech.seno</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Cette application a besoin d'accéder à la caméra pour scanner les QR codes et prendre votre photo de profil.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Seno utilise vos contacts pour trouver rapidement à qui envoyer de l'argent.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Face ID permet de déverrouiller Seno rapidement et en toute sécurité.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Cette application a besoin d'accéder à vos photos pour choisir votre photo de profil.</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneClassName</key>
+					<string>UIWindowScene</string>
+					<key>UISceneConfigurationName</key>
+					<string>flutter</string>
+					<key>UISceneDelegateClassName</key>
+					<string>FlutterSceneDelegate</string>
+					<key>UISceneStoryboardFile</key>
+					<string>Main</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
@@ -38,33 +82,5 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
-	<key>CADisableMinimumFrameDurationOnPhone</key>
-	<true/>
-	<key>UIApplicationSupportsIndirectInputEvents</key>
-	<true/>
-	<!-- Permissions caméra pour scanner les QR codes -->
-	<key>NSContactsUsageDescription</key>
-	<string>Seno utilise vos contacts pour trouver rapidement à qui envoyer de l'argent.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>Cette application a besoin d'accéder à la caméra pour scanner les QR codes et prendre votre photo de profil.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Cette application a besoin d'accéder à vos photos pour choisir votre photo de profil.</string>
-	<!-- Les liens rouvrent l'app sans que Flutter ne pousse de route -->
-	<key>FlutterDeepLinkingEnabled</key>
-	<false/>
-	<!-- Deep links (retour de paiement) -->
-	<key>CFBundleURLTypes</key>
-	<array>
-		<!-- Schéma de l'app -->
-		<dict>
-			<key>CFBundleTypeRole</key>
-			<string>Editor</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>com.neotech.seno</string>
-			</array>
-		</dict>
-	</array>
 </dict>
 </plist>
-

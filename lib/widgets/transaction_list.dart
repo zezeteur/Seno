@@ -159,9 +159,21 @@ class TransactionTile extends StatelessWidget {
 
   const TransactionTile({super.key, required this.transaction});
 
-  /// Nom du répertoire si l'autre partie est un contact (par numéro ou pseudo Seno)
+  /// Envoi vers un de ses propres comptes (libellé = son pseudo)
+  static bool isSelf(SenoTransaction tx) {
+    final mine = SupabaseService.peekLockProfile()?.pseudo?.toLowerCase();
+    return !tx.isReceived && mine != null && tx.label.toLowerCase() == mine;
+  }
+
+  /// Nom de la boutique, sinon nom du répertoire si l'autre partie est un
+  /// contact (par numéro ou pseudo Seno), sinon « Nom Prénoms » Seno
   static String? contactName(SenoTransaction tx) {
+    if (tx.merchantName case final shop?) return shop;
     final isPhone = RegExp(r'^[\d ]+$').hasMatch(tx.label);
+    return _phoneContactName(tx, isPhone) ?? tx.personName;
+  }
+
+  static String? _phoneContactName(SenoTransaction tx, bool isPhone) {
     return RecentsStore.contactName(
       (
         value: tx.label,
@@ -190,10 +202,13 @@ class TransactionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tx = transaction;
-    final name = contactName(tx);
+    // Envoi à soi-même : « Moi-même » à la place du nom
+    final name = isSelf(tx) ? context.tr('send_myself') : contactName(tx);
     final onSurface = Theme.of(context).colorScheme.onSurface;
     final String subtitle;
-    if (tx.isFailed) {
+    if (tx.isRefunded) {
+      subtitle = context.tr('tx_refunded');
+    } else if (tx.isFailed) {
       subtitle = context.tr('tx_failed');
     } else if (tx.isPending) {
       subtitle = context.tr('tx_pending');
@@ -223,6 +238,7 @@ class TransactionTile extends StatelessWidget {
               UserAvatar(
                 pseudo: name ?? tx.label,
                 avatarUrl: tx.avatarUrl,
+                merchantCategory: tx.merchantCategory,
                 radius: 24,
                 backgroundColor: AppColors.secondary,
                 foregroundColor: Colors.white,
@@ -283,12 +299,14 @@ class TransactionTile extends StatelessWidget {
           Text(
             amount,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: tx.isFailed
+                  color: tx.isFailed || tx.isRefunded
                       ? onSurface.withValues(alpha: 0.35)
                       : tx.isReceived
                           ? AppColors.success
                           : onSurface,
-                  decoration: tx.isFailed ? TextDecoration.lineThrough : null,
+                  decoration: tx.isFailed || tx.isRefunded
+                      ? TextDecoration.lineThrough
+                      : null,
                   fontWeight: FontWeight.w600,
                   fontSize: 16,
                 ),

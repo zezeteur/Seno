@@ -35,6 +35,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _currentIndex = widget.initialIndex;
     _loadFirstName();
     SupabaseService.profileRevision.addListener(_loadFirstName);
+    _loadMerchant();
+    SupabaseService.merchantRevision.addListener(_loadMerchant);
     RecentsStore.load();
     // Récents : dernières copies, puis mise à jour silencieuse en fond
     RecentsStore.refresh();
@@ -61,6 +63,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     SupabaseService.profileRevision.removeListener(_loadFirstName);
+    SupabaseService.merchantRevision.removeListener(_loadMerchant);
     SupabaseService.transactionsRevision.removeListener(_loadTransactions);
     SupabaseService.unsubscribeTransactions();
     super.dispose();
@@ -87,6 +90,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (mounted && id == _transactionsLoadId) {
         setState(() => _transactionsError = true);
       }
+    }
+  }
+
+  /// Marchand : boutons Envoyer + Encaisser, récents en dessous
+  /// (copie en cache tout de suite, puis version fraîche)
+  bool _isMerchant = SupabaseService.peekMyMerchant() != null;
+
+  Future<void> _loadMerchant() async {
+    try {
+      final merchant = await SupabaseService.getMyMerchant();
+      if (mounted) setState(() => _isMerchant = merchant != null);
+    } catch (_) {
+      // Hors ligne : dernière valeur connue
     }
   }
 
@@ -299,17 +315,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 24),
-
-                    // Send money section
-                    Text(
-                      context.tr('send_money'),
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            color: Colors.black,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 16,
-                          ),
-                    ),
+                    const SizedBox(height: 14),
                   ],
                 ),
               ),
@@ -326,6 +332,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   final recents = RecentsStore.recents.value;
                   final contacts = RecentsStore.phoneContacts.value;
                   final seno = RecentsStore.senoAccounts.value;
+                  if (_isMerchant) {
+                    return _buildMerchantActions(
+                        context, recents, contacts, seno);
+                  }
                   // Aucun récent : le bouton d'envoi occupe toute la largeur
                   if (recents.isEmpty) {
                     return SizedBox(
@@ -383,6 +393,115 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  /// Marchand : Envoyer et Encaisser côte à côte, récents en dessous
+  Widget _buildMerchantActions(
+    BuildContext context,
+    List<RecentRecipient> recents,
+    List<PhoneContact> contacts,
+    Map<String, ({String pseudo, String? avatarUrl})> seno,
+  ) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Row(
+            children: [
+              Expanded(
+                child: _buildPillButton(
+                  label: context.tr('send'),
+                  icon: HugeIcons.strokeRoundedArrowUpRight01,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const SendMoneyScreen()),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildPillButton(
+                  label: context.tr('collect'),
+                  icon: HugeIcons.strokeRoundedArrowDownLeft01,
+                  color: Colors.white,
+                  foregroundColor: Colors.black,
+                  // QR de réception : le client le scanne pour payer
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const QRCodeViewerScreen()),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (recents.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          SizedBox(
+            height: 80,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              children: [
+                for (final (i, r) in recents.take(4).indexed) ...[
+                  if (i > 0) const SizedBox(width: 12),
+                  _buildSendContact(
+                    context,
+                    icon: HugeIcons.strokeRoundedAiUser,
+                    label:
+                        RecentsStore.contactName(r, contacts, seno) ?? r.value,
+                    isIcon: false,
+                    avatarUrl: r.avatarUrl,
+                    recipient: r,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// Pilule (noire par défaut, texte + icône) sur toute la largeur disponible
+  Widget _buildPillButton({
+    required String label,
+    required dynamic icon,
+    required VoidCallback onTap,
+    Color color = Colors.black,
+    Color foregroundColor = Colors.white,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 56,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(28),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: foregroundColor,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            HugeIcon(icon: icon, size: 18, color: foregroundColor),
+          ],
+        ),
       ),
     );
   }
@@ -600,7 +719,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ),
     );
   }
-
 }
 
 /// Onglet actif : pilule pleine (icône + libellé) ;

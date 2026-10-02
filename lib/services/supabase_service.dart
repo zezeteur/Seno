@@ -300,7 +300,8 @@ class SupabaseService {
           return AccountLimits.fromJson(row);
         },
         encode: (v) => v.toJson(),
-        decode: (j) => AccountLimits.fromJson(Map<String, dynamic>.from(j as Map)),
+        decode: (j) =>
+            AccountLimits.fromJson(Map<String, dynamic>.from(j as Map)),
       );
 
   /// Montants déjà envoyés aujourd'hui et ce mois-ci (non mis en cache)
@@ -424,15 +425,89 @@ class SupabaseService {
     });
   }
 
-  /// Statut de la demande marchand (pending / approved / rejected), ou null
-  static Future<String?> getMerchantRequestStatus() async {
+  /// Compte marchand de l'utilisateur connecté, ou null (mis en cache)
+  static Future<MerchantInfo?> getMyMerchant() =>
+      CacheStore.cached<MerchantInfo?>(
+        name: 'merchant',
+        userId: client?.auth.currentUser?.id,
+        fetch: () async {
+          final supabase = client!;
+          final row = await supabase
+              .from('merchant_requests')
+              .select('business_name, pseudo, category, description, city, '
+                  'address, business_phone, email, logo_url, is_active')
+              .eq('user_id', supabase.auth.currentUser!.id)
+              .maybeSingle();
+          return row == null ? null : MerchantInfo.fromJson(row);
+        },
+        encode: (v) => v?.toJson(),
+        decode: _decodeMerchant,
+      );
+
+  /// Boutique en cache, sans appel réseau (affichage immédiat)
+  static MerchantInfo? peekMyMerchant() => CacheStore.peek<MerchantInfo?>(
+        name: 'merchant',
+        userId: client?.auth.currentUser?.id,
+        decode: _decodeMerchant,
+      );
+
+  static MerchantInfo? _decodeMerchant(Object? j) => j == null
+      ? null
+      : MerchantInfo.fromJson(Map<String, dynamic>.from(j as Map));
+
+  /// Date à partir de laquelle le pseudo boutique peut être changé
+  /// (null = maintenant) ; même délai que le pseudo utilisateur
+  static Future<DateTime?> getNextShopPseudoChange() async {
     final supabase = client!;
     final row = await supabase
         .from('merchant_requests')
-        .select('status')
+        .select('pseudo_changed_at')
         .eq('user_id', supabase.auth.currentUser!.id)
         .maybeSingle();
-    return row?['status'] as String?;
+    final value = row?['pseudo_changed_at'] as String?;
+    final changedAt = value == null ? null : DateTime.tryParse(value);
+    if (changedAt == null) return null;
+    final next = changedAt.toLocal().add(pseudoCooldown);
+    return next.isAfter(DateTime.now()) ? next : null;
+  }
+
+  /// Incrémenté à chaque modification de la boutique (carte du compte)
+  static final merchantRevision = ValueNotifier<int>(0);
+
+  /// Modifie les champs de la boutique ({'business_name': …, 'pseudo': …})
+  static Future<void> updateMerchant(Map<String, dynamic> fields) async {
+    final supabase = client!;
+    final rows = await supabase
+        .from('merchant_requests')
+        .update(fields)
+        .eq('user_id', supabase.auth.currentUser!.id)
+        .select('user_id');
+    if (rows.isEmpty) throw const AuthOtpException('profile_update_denied');
+    await CacheStore.remove(supabase.auth.currentUser!.id, 'merchant');
+    merchantRevision.value++;
+  }
+
+  /// Supprime le logo de la boutique (fichier + URL)
+  static Future<void> removeMerchantLogo() async {
+    final supabase = client!;
+    await updateMerchant({'logo_url': null});
+    await supabase.storage
+        .from('avatars')
+        .remove(['${supabase.auth.currentUser!.id}/merchant_logo.jpg']);
+  }
+
+  /// Envoie le logo du commerce (bucket avatars, dossier = id utilisateur)
+  /// et renvoie son URL publique
+  static Future<String> uploadMerchantLogo(Uint8List bytes) async {
+    final supabase = client!;
+    final path = '${supabase.auth.currentUser!.id}/merchant_logo.jpg';
+    final bucket = supabase.storage.from('avatars');
+    await bucket.uploadBinary(
+      path,
+      bytes,
+      fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: true),
+    );
+    return '${bucket.getPublicUrl(path)}?v=${DateTime.now().millisecondsSinceEpoch}';
   }
 
   /// Envoie la demande pour devenir marchand
@@ -444,9 +519,13 @@ class SupabaseService {
     required String address,
     required String businessPhone,
     String? email,
+    String? logoUrl,
+    required String pseudo,
   }) async {
     final supabase = client!;
     await supabase.from('merchant_requests').insert({
+      'pseudo': pseudo,
+      'logo_url': logoUrl,
       'user_id': supabase.auth.currentUser!.id,
       'business_name': businessName,
       'category': category,
@@ -456,6 +535,7 @@ class SupabaseService {
       'business_phone': businessPhone,
       'email': email,
     });
+    await CacheStore.remove(supabase.auth.currentUser!.id, 'merchant');
   }
 
   /// Date de naissance de l'utilisateur connecté
@@ -697,14 +777,37 @@ class SupabaseService {
   }
 
   /// Utilisateurs Seno dont le pseudo commence par [query] (3 car. min, 10 max)
-  static Future<List<({String pseudo, String? avatarUrl})>> searchSenoUsers(
-      String query) async {
+  /// Utilisateurs et boutiques actives dont le pseudo commence par [query]
+  /// (boutique : logo en avatar, nom du commerce en [displayName])
+  static Future<
+      List<
+          ({
+            String pseudo,
+            String? avatarUrl,
+            String? displayName,
+            bool isMerchant,
+            String? category
+          })>> searchSenoUsers(String query) async {
     final rows = await client!
         .rpc('search_seno_users', params: {'p_query': query}) as List<dynamic>;
     return [
       for (final r in rows.cast<Map<String, dynamic>>())
-        (pseudo: r['pseudo'] as String, avatarUrl: r['avatar_url'] as String?),
+        (
+          pseudo: r['pseudo'] as String,
+          avatarUrl: r['avatar_url'] as String?,
+          displayName: r['display_name'] as String?,
+          isMerchant: r['is_merchant'] == true,
+          category: r['category'] as String?,
+        ),
     ];
+  }
+
+  /// Le destinataire (pseudo utilisateur ou boutique) est-il un marchand
+  /// actif ? Ses frais sont alors retirés du montant reçu (règle de transfer)
+  static Future<bool> isSenoMerchant(String pseudo) async {
+    final result =
+        await client!.rpc('is_seno_merchant', params: {'p_pseudo': pseudo});
+    return result == true;
   }
 
   /// Comptes de réception d'un utilisateur Seno (numéro masqué, défaut en
@@ -968,7 +1071,10 @@ class SupabaseService {
       if (toNumero != null) 'to_numero': toNumero,
       if (toReseauId != null) 'to_reseau_id': toReseauId,
     });
-    return (id: res['id'] as String, redirectUrl: res['redirect_url'] as String);
+    return (
+      id: res['id'] as String,
+      redirectUrl: res['redirect_url'] as String
+    );
   }
 
   /// Statut d'un envoi (le serveur interroge Jèko si le webhook tarde)
@@ -1017,9 +1123,8 @@ class SupabaseService {
           event: 'transfert',
           callback: (message) {
             transactionsRevision.value++;
-            final data = message['payload'] is Map
-                ? message['payload'] as Map
-                : message;
+            final data =
+                message['payload'] is Map ? message['payload'] as Map : message;
             final id = data['id'], statut = data['statut'];
             if (id is String && statut is String) {
               _transfertEvents.add((id: id, statut: statut));
@@ -1151,6 +1256,62 @@ class SupportContacts {
   bool get isEmpty => whatsapp == null && phone == null && email == null;
 }
 
+/// Boutique de l'utilisateur (compte marchand)
+class MerchantInfo {
+  final String businessName;
+  final String? pseudo;
+  final String category;
+  final String? description;
+  final String city;
+  final String address;
+  final String businessPhone;
+  final String? email;
+  final String? logoUrl;
+
+  /// Boutique activée par le marchand
+  final bool isActive;
+
+  const MerchantInfo({
+    required this.businessName,
+    required this.pseudo,
+    required this.category,
+    required this.description,
+    required this.city,
+    required this.address,
+    required this.businessPhone,
+    required this.email,
+    required this.logoUrl,
+    required this.isActive,
+  });
+
+  factory MerchantInfo.fromJson(Map<String, dynamic> json) => MerchantInfo(
+        businessName: json['business_name'] as String,
+        pseudo: json['pseudo'] as String?,
+        category: json['category'] as String,
+        description: json['description'] as String?,
+        city: json['city'] as String,
+        address: json['address'] as String,
+        businessPhone: json['business_phone'] as String,
+        email: json['email'] as String?,
+        logoUrl: json['logo_url'] as String?,
+        // Ancienne copie en cache sans la colonne : boutique active
+        isActive: json['is_active'] as bool? ?? true,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'business_name': businessName,
+        'pseudo': pseudo,
+        'category': category,
+        'description': description,
+        'city': city,
+        'address': address,
+        'business_phone': businessPhone,
+        'email': email,
+        'logo_url': logoUrl,
+        'is_active': isActive,
+      };
+}
+
 /// Destinataire trouvé en scannant un QR Seno (aucun identifiant en clair)
 class QrPayee {
   final String pseudo;
@@ -1203,7 +1364,9 @@ class SenoTransaction {
   final int montant;
   final int frais;
 
-  /// collecte_en_attente, collecte_echec, transfert_en_cours, reussi, transfert_echec
+  /// collecte_en_attente, collecte_echec, transfert_en_cours, reussi,
+  /// reversement_relance, rembourse_en_cours, rembourse, remboursement_echec,
+  /// transfert_echec
   final String statut;
   final DateTime createdAt;
 
@@ -1216,6 +1379,15 @@ class SenoTransaction {
 
   /// Envoi en attente (Wave / Orange) : page de validation du paiement
   final String? paymentUrl;
+
+  /// Envoi à une boutique : sa catégorie (icône si pas de logo)
+  final String? merchantCategory;
+
+  /// Envoi à une boutique : son nom (titre à la place du pseudo)
+  final String? merchantName;
+
+  /// Autre partie utilisateur Seno : « Nom Prénoms »
+  final String? personName;
 
   const SenoTransaction({
     required this.id,
@@ -1230,6 +1402,9 @@ class SenoTransaction {
     required this.numero,
     required this.reseauId,
     this.paymentUrl,
+    this.merchantCategory,
+    this.merchantName,
+    this.personName,
   });
 
   /// Ligne de get_my_transactions (même format que le cache)
@@ -1246,6 +1421,9 @@ class SenoTransaction {
         numero: r['numero'] as String,
         reseauId: r['reseau_id'] as String,
         paymentUrl: r['payment_url'] as String?,
+        merchantCategory: r['merchant_category'] as String?,
+        merchantName: r['merchant_name'] as String?,
+        personName: r['person_name'] as String?,
       );
 
   Map<String, dynamic> toJson() => {
@@ -1261,10 +1439,26 @@ class SenoTransaction {
         'numero': numero,
         'reseau_id': reseauId,
         'payment_url': paymentUrl,
+        'merchant_category': merchantCategory,
+        'merchant_name': merchantName,
+        'person_name': personName,
       };
 
-  bool get isFailed =>
-      statut == 'collecte_echec' || statut == 'transfert_echec';
-  bool get isPending =>
-      statut == 'collecte_en_attente' || statut == 'transfert_en_cours';
+  bool get isFailed => failedStatuts.contains(statut);
+  bool get isPending => pendingStatuts.contains(statut);
+  bool get isRefunded => statut == 'rembourse';
+
+  static const failedStatuts = {
+    'collecte_echec',
+    'transfert_echec',
+    'remboursement_echec',
+  };
+
+  /// Relance du reversement et remboursement en cours : encore en traitement
+  static const pendingStatuts = {
+    'collecte_en_attente',
+    'transfert_en_cours',
+    'reversement_relance',
+    'rembourse_en_cours',
+  };
 }

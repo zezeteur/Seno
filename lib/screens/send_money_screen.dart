@@ -25,7 +25,17 @@ class SendMoneyScreen extends StatefulWidget {
   /// Destinataire déjà choisi (récent de l'accueil) : ouvre sur le montant
   final RecentRecipient? initialRecipient;
 
-  const SendMoneyScreen({super.key, this.initialRecipient});
+  /// Destinataire boutique : sa catégorie (icône si pas de logo)
+  final String? initialCategory;
+
+  /// Destinataire boutique : son nom
+  final String? initialShopName;
+
+  const SendMoneyScreen(
+      {super.key,
+      this.initialRecipient,
+      this.initialCategory,
+      this.initialShopName});
 
   @override
   State<SendMoneyScreen> createState() => _SendMoneyScreenState();
@@ -60,7 +70,14 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
       RecentsStore.senoAccounts.value;
 
   /// Recherche d'utilisateurs Seno par pseudo (hors répertoire)
-  List<({String pseudo, String? avatarUrl})> _pseudoResults = [];
+  List<
+      ({
+        String pseudo,
+        String? avatarUrl,
+        String? displayName,
+        bool isMerchant,
+        String? category
+      })> _pseudoResults = [];
   Timer? _pseudoDebounce;
   int _pseudoSearchId = 0;
 
@@ -68,6 +85,12 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
   _Step _step = _Step.recipient;
   String _recipient = '';
   String? _recipientAvatarUrl;
+
+  /// Boutique choisie : sa catégorie (icône à la place du logo manquant)
+  String? _recipientCategory;
+
+  /// Boutique choisie : son nom (au-dessus du @pseudo)
+  String? _recipientShopName;
   String _amount = '';
 
   /// Compte débité : le compte par défaut, modifiable depuis le bandeau
@@ -146,6 +169,12 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
 
   Future<void> _loadRecipientComptes(String pseudo) async {
     final id = ++_recipientComptesLoadId;
+    // Marchand : frais à sa charge (vérifié aussi par le serveur)
+    SupabaseService.isSenoMerchant(pseudo).then((merchant) {
+      if (mounted && id == _recipientComptesLoadId) {
+        setState(() => _recipientIsMerchant = merchant);
+      }
+    }).catchError((_) {});
     try {
       final comptes = await SupabaseService.getSenoUserComptes(pseudo);
       // Ignore une réponse arrivée après un changement de destinataire
@@ -238,6 +267,11 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
   /// Coché : l'expéditeur paie les frais ; sinon ils sont retirés du montant reçu
   bool _senderPaysFees = true;
 
+  /// Destinataire marchand (boutique active) : il paie toujours les frais
+  bool _recipientIsMerchant = false;
+
+  bool get _effectiveSenderPaysFees => !_recipientIsMerchant && _senderPaysFees;
+
   @override
   void initState() {
     super.initState();
@@ -260,7 +294,10 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           _selectRecipient(initial.value,
-              avatarUrl: initial.avatarUrl, phone: initial.phone);
+              avatarUrl: initial.avatarUrl,
+              phone: initial.phone,
+              category: widget.initialCategory,
+              shopName: widget.initialShopName);
         }
       });
     }
@@ -526,8 +563,9 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
   /// Nom du destinataire dans le répertoire (hors envoi à soi-même)
   String? get _recipientContactName => _recipient == _myPseudo
       ? null
-      : _recentContactName(
-          (value: _recipient, avatarUrl: null, phone: _recipientPhone));
+      : _recipientShopName ??
+          _recentContactName(
+              (value: _recipient, avatarUrl: null, phone: _recipientPhone));
 
   /// Récents filtrés par la saisie (pseudo ou numéro, sans « @ » ni espaces)
   List<({String value, String? avatarUrl, String? phone})>
@@ -654,14 +692,21 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
   static final _validPhonePrefix = RegExp(r'^0[157]');
 
   void _selectRecipient(String value,
-      {String? avatarUrl, String? phone, bool saveRecent = true}) {
+      {String? avatarUrl,
+      String? phone,
+      String? category,
+      String? shopName,
+      bool saveRecent = true}) {
     FocusScope.of(context).unfocus();
     setState(() {
       _recipient = value;
       _recipientAvatarUrl = avatarUrl;
+      _recipientCategory = category;
+      _recipientShopName = shopName;
       _toReseauChoice = null;
       _recipientComptes = [];
       _toCompteChoiceId = null;
+      _recipientIsMerchant = false;
       // Numéro saisi ou choisi : sert à filtrer les réseaux de réception
       _recipientPhone = phone ??
           (_phonePattern.hasMatch(value) ? value.replaceAll(' ', '') : null);
@@ -766,8 +811,12 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
 
     // Nouvelle clé si les paramètres de l'envoi ont changé depuis la dernière tentative
     final payload = [
-      compte.id, _amountValue, _senderPaysFees, toCompte?.id,
-      isPhone ? _recipientPhone : null, isPhone ? toReseau!.id : null,
+      compte.id,
+      _amountValue,
+      _effectiveSenderPaysFees,
+      toCompte?.id,
+      isPhone ? _recipientPhone : null,
+      isPhone ? toReseau!.id : null,
     ].join('|');
     if (_idempotencyKey == null || _idempotencyPayload != payload) {
       _idempotencyKey = SupabaseService.newIdempotencyKey();
@@ -781,7 +830,7 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
         idempotencyKey: _idempotencyKey!,
         compteId: compte.id,
         amount: _amountValue,
-        senderPaysFees: _senderPaysFees,
+        senderPaysFees: _effectiveSenderPaysFees,
         label: _isSelf ? (_myPseudo ?? _recipient) : _recipient,
         toCompteId: toCompte?.id,
         toNumero: isPhone ? _recipientPhone : null,
@@ -819,9 +868,13 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
     );
   }
 
+  /// Ouvert sur un destinataire (scan, récent, renvoi) : le retour depuis
+  /// le montant ferme l'écran au lieu de revenir à la recherche
+  bool get _backClosesFromAmount => widget.initialRecipient != null;
+
   void _onBack() {
     if (_loading) return;
-    if (_step == _Step.amount) {
+    if (_step == _Step.amount && !_backClosesFromAmount) {
       setState(() => _step = _Step.recipient);
       return;
     }
@@ -832,8 +885,10 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
   bool get _amountValid =>
       _amountValue >= _minAmount && _amountValue <= _maxAmount;
   int get _fee => (_amountValue * (_feePercent ?? 0) / 100).ceil();
-  int get _total => _senderPaysFees ? _amountValue + _fee : _amountValue;
-  int get _received => _senderPaysFees ? _amountValue : _amountValue - _fee;
+  int get _total =>
+      _effectiveSenderPaysFees ? _amountValue + _fee : _amountValue;
+  int get _received =>
+      _effectiveSenderPaysFees ? _amountValue : _amountValue - _fee;
 
   /// 25000 → « 25 000 »
   String _formatAmount(String digits) {
@@ -852,7 +907,8 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
     final viewPadding = MediaQuery.of(context).viewPadding;
 
     return PopScope(
-      canPop: _step == _Step.recipient,
+      canPop: !_loading &&
+          (_step == _Step.recipient || _backClosesFromAmount),
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _onBack();
       },
@@ -1113,19 +1169,55 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
                     leading: UserAvatar(
                       pseudo: u.pseudo,
                       avatarUrl: u.avatarUrl,
+                      merchantCategory: u.isMerchant ? u.category : null,
                       radius: 22,
                       backgroundColor: AppColors.secondary,
                       foregroundColor: Colors.white,
                     ),
-                    title: Text('@${u.pseudo}',
-                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                    title: Text(
+                        u.isMerchant && u.displayName != null
+                            ? u.displayName!
+                            : '@${u.pseudo}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                    subtitle: u.isMerchant
+                        ? Row(
+                            children: [
+                              Flexible(
+                                child: Text('@${u.pseudo}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis),
+                              ),
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: AppColors.secondary
+                                      .withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(50),
+                                ),
+                                child: Text(
+                                  context.tr('send_shop_badge'),
+                                  style: textTheme.labelSmall?.copyWith(
+                                      color: AppColors.secondary,
+                                      fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                            ],
+                          )
+                        : null,
                     trailing: HugeIcon(
                       icon: HugeIcons.strokeRoundedArrowRight01,
                       size: 18,
                       color: onSurface.withValues(alpha: 0.4),
                     ),
-                    onTap: () =>
-                        _selectRecipient(u.pseudo, avatarUrl: u.avatarUrl),
+                    // Boutique : pas ajoutée aux récents
+                    onTap: () => _selectRecipient(u.pseudo,
+                        avatarUrl: u.avatarUrl,
+                        category: u.isMerchant ? u.category : null,
+                        shopName: u.isMerchant ? u.displayName : null,
+                        saveRecent: !u.isMerchant),
                   ),
               ],
               if (phoneContacts.isNotEmpty) ...[
@@ -1231,6 +1323,7 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
                 child: UserAvatar(
                   pseudo: isPhone ? null : _recipient,
                   avatarUrl: _recipientAvatarUrl,
+                  merchantCategory: _recipientCategory,
                   radius: 22,
                   backgroundColor: AppColors.secondary,
                   foregroundColor: Colors.white,
@@ -1383,12 +1476,15 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
           ),
         const Spacer(),
         if (_feePercent != null) ...[
-          _buildFeesToggle(textTheme),
-          const SizedBox(height: 8),
-          _buildSummaryRow(textTheme, context.tr('send_receives'), _received),
-          const SizedBox(height: 4),
-          _buildSummaryRow(textTheme, context.tr('send_total'), _total,
-              bold: true),
+          // Boutique : le client paie le montant saisi, rien à afficher
+          if (!_recipientIsMerchant) ...[
+            _buildFeesToggle(textTheme),
+            const SizedBox(height: 8),
+            _buildSummaryRow(textTheme, context.tr('send_receives'), _received),
+            const SizedBox(height: 4),
+            _buildSummaryRow(textTheme, context.tr('send_total'), _total,
+                bold: true),
+          ],
           const SizedBox(height: 24),
         ],
         IgnorePointer(
@@ -1641,8 +1737,14 @@ class _SendProgressPageState extends State<_SendProgressPage>
   bool _expired = false;
   bool _polling = false;
 
-  bool get _done =>
-      const {'reussi', 'collecte_echec', 'transfert_echec'}.contains(_statut);
+  bool get _done => const {
+        'reussi',
+        'collecte_echec',
+        'transfert_echec',
+        'rembourse_en_cours',
+        'rembourse',
+        'remboursement_echec',
+      }.contains(_statut);
 
   @override
   void initState() {
@@ -1732,8 +1834,18 @@ class _SendProgressPageState extends State<_SendProgressPage>
     final (title, body) = switch (_statut) {
       'reussi' => (context.tr('send_success'), null),
       'collecte_echec' => (context.tr('send_payment_failed'), null),
-      'transfert_echec' => (context.tr('send_payout_failed'), null),
-      'transfert_en_cours' => (context.tr('send_processing'), null),
+      'transfert_echec' || 'remboursement_echec' => (
+          context.tr('send_payout_failed'),
+          null
+        ),
+      'rembourse_en_cours' || 'rembourse' => (
+          context.tr('send_refunded'),
+          null
+        ),
+      'transfert_en_cours' || 'reversement_relance' => (
+          context.tr('send_processing'),
+          null
+        ),
       _ when _expired => (
           context.tr('send_expired_title'),
           context.tr('send_expired_body')

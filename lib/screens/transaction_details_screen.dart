@@ -12,6 +12,7 @@ import '../services/supabase_service.dart';
 import '../theme/app_colors.dart';
 import '../utils/pair_digits_formatter.dart';
 import '../utils/toast_service.dart';
+import '../widgets/transaction_list.dart';
 import '../widgets/user_avatar.dart';
 import 'help_support_screen.dart';
 import 'send_money_screen.dart';
@@ -40,10 +41,17 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen>
 
   /// Statut à jour (rafraîchi à l'ouverture et au retour dans l'app)
   late String _statut = widget.transaction.statut;
-  bool get _isFailed =>
-      _statut == 'collecte_echec' || _statut == 'transfert_echec';
-  bool get _isPending =>
-      _statut == 'collecte_en_attente' || _statut == 'transfert_en_cours';
+  bool get _isFailed => SenoTransaction.failedStatuts.contains(_statut);
+  bool get _isPending => SenoTransaction.pendingStatuts.contains(_statut);
+  bool get _isRefunded => _statut == 'rembourse';
+
+  /// Message d'aide quand le reversement n'a pas abouti
+  String? get _refundHelpKey => switch (_statut) {
+        'rembourse_en_cours' => 'tx_refund_pending_help',
+        'rembourse' => 'tx_refunded_help',
+        'transfert_echec' || 'remboursement_echec' => 'tx_payout_failed_help',
+        _ => null,
+      };
   final _receiptKey = GlobalKey();
   bool _sharing = false;
 
@@ -277,6 +285,13 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen>
   }
 
   ({String label, Color color, dynamic icon}) _status(BuildContext context) {
+    if (_isRefunded) {
+      return (
+        label: context.tr('tx_refunded'),
+        color: Colors.blueGrey,
+        icon: HugeIcons.strokeRoundedArrowTurnBackward,
+      );
+    }
     if (_isFailed) {
       return (
         label: context.tr('tx_failed'),
@@ -362,8 +377,13 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen>
     final status = _status(context);
     final sign = _tx.isReceived ? '+' : '-';
     final handle = _isPhoneLabel ? _numero : '@${_tx.label}';
-    // Contact du répertoire : son nom en titre (pseudo / numéro dessous)
-    final title = widget.contactName ?? handle;
+    // Nom en titre (pseudo / numéro dessous) : contact du répertoire,
+    // boutique, sinon « Nom Prénoms » de l'utilisateur Seno
+    // Envoi à soi-même : « Moi-même »
+    final name = TransactionTile.isSelf(_tx)
+        ? context.tr('send_myself')
+        : widget.contactName ?? _tx.merchantName ?? _tx.personName;
+    final title = name ?? handle;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -413,6 +433,7 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen>
                               UserAvatar(
                                 pseudo: title,
                                 avatarUrl: _tx.avatarUrl,
+                                merchantCategory: _tx.merchantCategory,
                                 radius: 36,
                                 backgroundColor: AppColors.secondary,
                                 foregroundColor: Colors.white,
@@ -432,7 +453,7 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen>
                                   ),
                                 ),
                               ),
-                              if (widget.contactName != null)
+                              if (name != null)
                                 Text(
                                   handle,
                                   style: textTheme.bodySmall?.copyWith(
@@ -443,12 +464,12 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen>
                               Text(
                                 '$sign ${_fcfa(_tx.montant)}',
                                 style: textTheme.headlineMedium?.copyWith(
-                                  color: _isFailed
+                                  color: _isFailed || _isRefunded
                                       ? onSurface.withValues(alpha: 0.35)
                                       : _tx.isReceived
                                           ? AppColors.success
                                           : onSurface,
-                                  decoration: _isFailed
+                                  decoration: _isFailed || _isRefunded
                                       ? TextDecoration.lineThrough
                                       : null,
                                   fontWeight: FontWeight.bold,
@@ -482,9 +503,8 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen>
                               ),
                               const SizedBox(height: 24),
 
-                              // Fonds collectés mais reversement échoué : orienter vers le support
-                              if (_statut == 'transfert_echec' &&
-                                  !_tx.isReceived)
+                              // Reversement impossible : remboursement intégral, ou support si bloqué
+                              if (!_tx.isReceived && _refundHelpKey != null)
                                 Container(
                                   margin:
                                       const EdgeInsets.fromLTRB(20, 0, 20, 8),
@@ -495,7 +515,7 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen>
                                     borderRadius: BorderRadius.circular(16),
                                   ),
                                   child: Text(
-                                    context.tr('tx_payout_failed_help'),
+                                    context.tr(_refundHelpKey!),
                                     style: textTheme.bodySmall?.copyWith(
                                       color: Colors.redAccent,
                                       height: 1.4,
@@ -508,7 +528,7 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen>
                                   context,
                                   context
                                       .tr(_tx.isReceived ? 'tx_from' : 'tx_to'),
-                                  widget.contactName != null && !_isPhoneLabel
+                                  name != null && !_isPhoneLabel
                                       ? '$title · $handle'
                                       : title,
                                 ),
@@ -581,6 +601,8 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen>
                                   onPressed: () => Navigator.of(context)
                                       .pushReplacement(MaterialPageRoute(
                                     builder: (_) => SendMoneyScreen(
+                                      initialCategory: _tx.merchantCategory,
+                                      initialShopName: _tx.merchantName,
                                       initialRecipient: (
                                         value: _tx.label,
                                         avatarUrl: _tx.avatarUrl,

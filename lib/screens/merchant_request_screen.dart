@@ -1,13 +1,22 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:hugeicons/hugeicons.dart';
 import '../l10n/app_strings.dart';
+import '../models/merchant_category.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_colors.dart';
 import '../utils/toast_service.dart';
 
-enum _Step { business, location, contact, review }
+enum _PseudoStatus { idle, checking, available, taken, invalid }
 
-/// Demande pour devenir marchand : activité → localisation → contact
+enum _Step { category, business, location, contact, review }
+
+/// Demande pour devenir marchand : catégorie → activité → localisation → contact
 /// → récapitulatif. Renvoie true quand la demande est envoyée.
 class MerchantRequestScreen extends StatefulWidget {
   const MerchantRequestScreen({super.key});
@@ -17,21 +26,29 @@ class MerchantRequestScreen extends StatefulWidget {
 }
 
 class _MerchantRequestScreenState extends State<MerchantRequestScreen> {
-  static const _categories = ['shop', 'food', 'services', 'transport', 'other'];
-
   final _formKeys = {
     for (final step in _Step.values) step: GlobalKey<FormState>(),
   };
+  static final _pseudoFormat = RegExp(r'^[a-z0-9]{3,20}$');
+
   final _nameController = TextEditingController();
+  final _pseudoController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _cityController = TextEditingController();
   final _addressController = TextEditingController();
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
 
-  _Step _step = _Step.business;
+  _Step _step = _Step.category;
   String? _category;
   bool _isLoading = false;
+
+  /// Pseudo de la boutique : unique (boutiques et utilisateurs)
+  _PseudoStatus _pseudoStatus = _PseudoStatus.idle;
+  Timer? _pseudoDebounce;
+
+  /// Logo du commerce (facultatif), envoyé avec la demande
+  Uint8List? _logo;
 
   @override
   void initState() {
@@ -45,7 +62,9 @@ class _MerchantRequestScreenState extends State<MerchantRequestScreen> {
 
   @override
   void dispose() {
+    _pseudoDebounce?.cancel();
     _nameController.dispose();
+    _pseudoController.dispose();
     _descriptionController.dispose();
     _cityController.dispose();
     _addressController.dispose();
@@ -57,6 +76,119 @@ class _MerchantRequestScreenState extends State<MerchantRequestScreen> {
   String? _required(String? value) => (value == null || value.trim().isEmpty)
       ? context.tr('merchant_required')
       : null;
+
+  void _onPseudoChanged(String value) {
+    _pseudoDebounce?.cancel();
+    final status = value.isEmpty
+        ? _PseudoStatus.idle
+        : _pseudoFormat.hasMatch(value)
+            ? _PseudoStatus.checking
+            : _PseudoStatus.invalid;
+    setState(() => _pseudoStatus = status);
+    if (status == _PseudoStatus.checking) {
+      _pseudoDebounce =
+          Timer(const Duration(milliseconds: 400), () => _checkPseudo(value));
+    }
+  }
+
+  Future<void> _checkPseudo(String value) async {
+    try {
+      final available = await SupabaseService.isPseudoAvailable(value);
+      // Ignore une réponse obsolète si l'utilisateur a continué à taper
+      if (!mounted || _pseudoController.text != value) return;
+      setState(() => _pseudoStatus =
+          available ? _PseudoStatus.available : _PseudoStatus.taken);
+    } catch (_) {
+      if (mounted && _pseudoController.text == value) {
+        setState(() => _pseudoStatus = _PseudoStatus.idle);
+      }
+    }
+  }
+
+  String? _validatePseudo(String? value) {
+    if (value == null || value.isEmpty) return context.tr('merchant_required');
+    return switch (_pseudoStatus) {
+      _PseudoStatus.available => null,
+      _PseudoStatus.taken => context.tr('pseudo_taken'),
+      _PseudoStatus.checking => context.tr('merchant_pseudo_checking'),
+      _ => context.tr('pseudo_rules'),
+    };
+  }
+
+  Widget _buildPseudoField() {
+    final (message, color) = switch (_pseudoStatus) {
+      _PseudoStatus.available => (
+          context.tr('pseudo_available'),
+          AppColors.success
+        ),
+      _PseudoStatus.taken => (context.tr('pseudo_taken'), AppColors.error),
+      _PseudoStatus.invalid => (context.tr('pseudo_rules'), AppColors.error),
+      _ => (context.tr('pseudo_rules'), AppColors.textSecondary),
+    };
+    final Widget? icon = switch (_pseudoStatus) {
+      _PseudoStatus.checking => const Padding(
+          padding: EdgeInsets.all(16),
+          child: SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      _PseudoStatus.available => const Padding(
+          padding: EdgeInsets.only(right: 16),
+          child: Icon(Icons.check_circle, color: AppColors.success),
+        ),
+      _PseudoStatus.taken || _PseudoStatus.invalid => const Padding(
+          padding: EdgeInsets.only(right: 16),
+          child: Icon(Icons.cancel, color: AppColors.error),
+        ),
+      _PseudoStatus.idle => null,
+    };
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextFormField(
+            controller: _pseudoController,
+            autocorrect: false,
+            enableSuggestions: false,
+            inputFormatters: [
+              // Lettres et chiffres uniquement, en minuscules
+              FilteringTextInputFormatter.allow(RegExp('[a-zA-Z0-9]')),
+              TextInputFormatter.withFunction(
+                  (_, v) => v.copyWith(text: v.text.toLowerCase())),
+            ],
+            onChanged: _onPseudoChanged,
+            validator: _validatePseudo,
+            decoration: _decoration(context.tr('merchant_pseudo')).copyWith(
+              prefixText: '@',
+              suffixIcon: icon,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Text(
+              message,
+              style: TextStyle(color: color, fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String? _maxLength(String? value, int max, {int min = 0}) {
+    final length = value?.trim().length ?? 0;
+    if (length < min) {
+      return context.tr('merchant_too_short', {'min': '$min'});
+    }
+    if (length > max) {
+      return context.tr('merchant_too_long', {'max': '$max'});
+    }
+    return null;
+  }
 
   String? _optionalEmail(String? value) {
     final v = value?.trim() ?? '';
@@ -73,7 +205,7 @@ class _MerchantRequestScreenState extends State<MerchantRequestScreen> {
 
   void _onBack() {
     if (_isLoading) return;
-    if (_step == _Step.business) {
+    if (_step == _Step.category) {
       Navigator.of(context).pop(false);
     } else {
       setState(() => _step = _Step.values[_step.index - 1]);
@@ -90,10 +222,35 @@ class _MerchantRequestScreenState extends State<MerchantRequestScreen> {
     setState(() => _step = _Step.values[_step.index + 1]);
   }
 
+  Future<void> _pickLogo() async {
+    try {
+      // Redimensionné et compressé : envoi léger
+      final file = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 512,
+        maxHeight: 512,
+        imageQuality: 85,
+      );
+      if (file == null) return;
+      final bytes = await file.readAsBytes();
+      if (mounted) setState(() => _logo = bytes);
+    } catch (_) {
+      // Permission refusée
+      if (mounted) {
+        ToastService.showError(context, context.tr('merchant_logo_error'));
+      }
+    }
+  }
+
   Future<void> _submit() async {
     setState(() => _isLoading = true);
     try {
+      final logo = _logo;
+      final logoUrl =
+          logo == null ? null : await SupabaseService.uploadMerchantLogo(logo);
       await SupabaseService.submitMerchantRequest(
+        pseudo: _pseudoController.text,
+        logoUrl: logoUrl,
         businessName: _nameController.text.trim(),
         category: _category!,
         description: _trimOrNull(_descriptionController),
@@ -105,6 +262,20 @@ class _MerchantRequestScreenState extends State<MerchantRequestScreen> {
       if (!mounted) return;
       ToastService.showSuccess(context, context.tr('merchant_submitted'));
       Navigator.of(context).pop(true);
+    } on PostgrestException catch (e) {
+      if (!mounted) return;
+      // Pseudo pris entre la vérification et l'envoi : retour à l'étape 2
+      if (e.code == '23505') {
+        setState(() {
+          _isLoading = false;
+          _pseudoStatus = _PseudoStatus.taken;
+          _step = _Step.business;
+        });
+        ToastService.showError(context, context.tr('merchant_pseudo_taken'));
+        return;
+      }
+      setState(() => _isLoading = false);
+      ToastService.showError(context, context.tr('merchant_submit_error'));
     } catch (_) {
       if (!mounted) return;
       setState(() => _isLoading = false);
@@ -144,7 +315,6 @@ class _MerchantRequestScreenState extends State<MerchantRequestScreen> {
     TextInputType? keyboardType,
     TextCapitalization capitalization = TextCapitalization.sentences,
     int maxLines = 1,
-    int? maxLength,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -153,9 +323,157 @@ class _MerchantRequestScreenState extends State<MerchantRequestScreen> {
         keyboardType: keyboardType,
         textCapitalization: capitalization,
         maxLines: maxLines,
-        maxLength: maxLength,
         decoration: _decoration(context.tr(labelKey)),
         validator: validator,
+      ),
+    );
+  }
+
+  Widget _buildCategory() {
+    final theme = Theme.of(context);
+    return Form(
+      key: _formKeys[_Step.category],
+      child: FormField<String>(
+        validator: (_) =>
+            _category == null ? context.tr('merchant_required') : null,
+        builder: (state) => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final c in MerchantCategory.all)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Material(
+                  color: theme.colorScheme.surface,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    side: BorderSide(
+                      color: _category == c.id
+                          ? AppColors.secondary
+                          : Colors.transparent,
+                      width: 2,
+                    ),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    onTap: () {
+                      setState(() => _category = c.id);
+                      state.didChange(c.id);
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: c.color.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Center(
+                              child: HugeIcon(
+                                icon: c.icon,
+                                size: 22,
+                                color: c.color,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Text(
+                              context.tr(c.labelKey),
+                              style: theme.textTheme.bodyLarge
+                                  ?.copyWith(fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          if (_category == c.id)
+                            const HugeIcon(
+                              icon: HugeIcons.strokeRoundedCheckmarkCircle02,
+                              size: 22,
+                              color: AppColors.secondary,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            if (state.hasError)
+              Text(
+                state.errorText!,
+                style: const TextStyle(color: AppColors.error, fontSize: 12),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLogoPicker() {
+    final logo = _logo;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24),
+      child: Column(
+        children: [
+          GestureDetector(
+            onTap: _pickLogo,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: 96,
+                  height: 96,
+                  decoration: BoxDecoration(
+                    color: AppColors.secondary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(24),
+                    image: logo == null
+                        ? null
+                        : DecorationImage(
+                            image: MemoryImage(logo), fit: BoxFit.cover),
+                  ),
+                  child: logo != null
+                      ? null
+                      : const Center(
+                          child: HugeIcon(
+                            icon: HugeIcons.strokeRoundedStore01,
+                            size: 36,
+                            color: AppColors.secondary,
+                          ),
+                        ),
+                ),
+                Positioned(
+                  right: -6,
+                  bottom: -6,
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: const BoxDecoration(
+                      color: AppColors.secondary,
+                      shape: BoxShape.circle,
+                    ),
+                    child: HugeIcon(
+                      icon: logo == null
+                          ? HugeIcons.strokeRoundedAdd01
+                          : HugeIcons.strokeRoundedEdit02,
+                      size: 16,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (logo == null)
+            Text(
+              context.tr('merchant_logo'),
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            )
+          else
+            TextButton(
+              onPressed: () => setState(() => _logo = null),
+              child: Text(context.tr('merchant_logo_remove')),
+            ),
+        ],
       ),
     );
   }
@@ -166,66 +484,20 @@ class _MerchantRequestScreenState extends State<MerchantRequestScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          _buildLogoPicker(),
           _field(
             _nameController,
             'merchant_business_name',
-            validator: _required,
+            // Pas de maxLength : il bloque l'effacement sur certains claviers
+            validator: (v) => _required(v) ?? _maxLength(v, 80, min: 2),
             capitalization: TextCapitalization.words,
-            maxLength: 80,
           ),
-          FormField<String>(
-            initialValue: _category,
-            validator: (_) =>
-                _category == null ? context.tr('merchant_required') : null,
-            builder: (state) => Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  context.tr('merchant_category'),
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleSmall
-                      ?.copyWith(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final cat in _categories)
-                      ChoiceChip(
-                        label: Text(context.tr('merchant_cat_$cat')),
-                        selected: _category == cat,
-                        selectedColor: AppColors.secondary,
-                        labelStyle: TextStyle(
-                          color: _category == cat ? Colors.white : null,
-                        ),
-                        showCheckmark: false,
-                        shape: const StadiumBorder(),
-                        onSelected: (_) {
-                          setState(() => _category = cat);
-                          state.didChange(cat);
-                        },
-                      ),
-                  ],
-                ),
-                if (state.hasError) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    state.errorText!,
-                    style:
-                        const TextStyle(color: AppColors.error, fontSize: 12),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
+          _buildPseudoField(),
           _field(
             _descriptionController,
             'merchant_description',
+            validator: (v) => _maxLength(v, 300),
             maxLines: 3,
-            maxLength: 300,
           ),
         ],
       ),
@@ -306,13 +578,15 @@ class _MerchantRequestScreenState extends State<MerchantRequestScreen> {
         type: MaterialType.transparency,
         child: Column(
           children: [
-            _reviewRow('merchant_business_name', _nameController.text.trim(),
-                _Step.business),
             _reviewRow(
                 'merchant_category',
                 _category == null
                     ? null
-                    : context.tr('merchant_cat_$_category'),
+                    : context.tr(MerchantCategory.byId(_category).labelKey),
+                _Step.category),
+            _reviewRow('merchant_business_name', _nameController.text.trim(),
+                _Step.business),
+            _reviewRow('merchant_pseudo', '@${_pseudoController.text}',
                 _Step.business),
             _reviewRow('merchant_description',
                 _descriptionController.text.trim(), _Step.business),
@@ -338,6 +612,11 @@ class _MerchantRequestScreenState extends State<MerchantRequestScreen> {
     final isLast = _step == _Step.review;
 
     final (title, subtitle, content) = switch (_step) {
+      _Step.category => (
+          'merchant_step_category',
+          'merchant_step_category_sub',
+          _buildCategory(),
+        ),
       _Step.business => (
           'merchant_step_business',
           'merchant_step_business_sub',

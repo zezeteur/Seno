@@ -228,6 +228,8 @@ class RecentsStore {
           final match = (await SupabaseService.searchSenoUsers(r.value))
               .where((u) => u.pseudo.toLowerCase() == r.value.toLowerCase())
               .firstOrNull;
+          // Boutique (enregistrée avant ce filtre) : retirée des récents
+          if (match != null && match.isMerchant) continue;
           if (match != null) {
             updated.add((
               value: match.pseudo,

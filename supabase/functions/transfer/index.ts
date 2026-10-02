@@ -55,11 +55,19 @@ Deno.serve(async (req) => {
 
       // Destination : compte Seno (id obtenu via get_seno_user_comptes), sinon numéro + réseau
       let dest: { compte: string | null; numero: string; reseau: string };
+      // Destinataire marchand (boutique active) : il paie les frais
+      let merchantPaysFees = false;
       if (typeof to_compte_id === 'string') {
         const { data: c } = await admin
-          .from('comptes').select('id, numero, id_reseau').eq('id', to_compte_id).maybeSingle();
+          .from('comptes').select('id, numero, id_reseau, proprietaire').eq('id', to_compte_id).maybeSingle();
         if (!c) return json({ error: 'invalid_request' }, 400);
         dest = { compte: c.id, numero: c.numero, reseau: c.id_reseau };
+        if (c.proprietaire !== userId) {
+          const { data: shop } = await admin
+            .from('merchant_requests').select('user_id')
+            .eq('user_id', c.proprietaire).eq('is_active', true).maybeSingle();
+          merchantPaysFees = shop !== null;
+        }
       } else if (typeof to_numero === 'string' && /^\d{10}$/.test(to_numero) && typeof to_reseau_id === 'string') {
         dest = { compte: null, numero: to_numero, reseau: to_reseau_id };
       } else {
@@ -77,8 +85,10 @@ Deno.serve(async (req) => {
         .from('frais_transfert').select('pourcentage').eq('id', 1).single();
       if (feeError) throw feeError;
       const fee = Math.ceil((amount * Number(frais.pourcentage)) / 100);
-      const montant = sender_pays_fees === false ? amount - fee : amount;
-      const total = sender_pays_fees === false ? amount : amount + fee;
+      // Marchand : frais retirés du montant reçu, quel que soit le choix de l'app
+      const senderPays = !merchantPaysFees && sender_pays_fees !== false;
+      const montant = senderPays ? amount : amount - fee;
+      const total = senderPays ? amount + fee : amount;
       if (montant < 5) return json({ error: 'invalid_request' }, 400);
 
       // Plafonds (identiques pour tous, sur le montant reçu) vérifiés et envoi créé
@@ -137,7 +147,7 @@ Deno.serve(async (req) => {
       if (typeof body.id !== 'string') return json({ error: 'invalid_request' }, 400);
       const read = () =>
         admin.from('transferts')
-          .select(`${TRANSFERT_COLUMNS}, jeko_payment_id, jeko_transfer_id, dest:compte_destination(proprietaire)`)
+          .select(`${TRANSFERT_COLUMNS}, jeko_payment_id, jeko_transfer_id, jeko_refund_id, tentatives_reversement, dest:compte_destination(proprietaire)`)
           .eq('id', body.id).eq('expediteur', userId).maybeSingle();
       let { data: t } = await read();
       if (!t) return json({ error: 'not_found' }, 404);
@@ -149,13 +159,20 @@ Deno.serve(async (req) => {
           await applyJekoStatus(admin, { kind: 'p', id: t.id }, p.status, p.errorReason);
         } else if (t.statut === 'transfert_en_cours' && t.jeko_transfer_id) {
           const tr = await getTransfer(t.jeko_transfer_id);
-          await applyJekoStatus(admin, { kind: 't', id: t.id }, tr.status);
+          await applyJekoStatus(
+            admin, { kind: 't', id: t.id, attempt: t.tentatives_reversement || undefined }, tr.status,
+          );
+        } else if (t.statut === 'rembourse_en_cours' && t.jeko_refund_id) {
+          const r = await getTransfer(t.jeko_refund_id);
+          await applyJekoStatus(admin, { kind: 'r', id: t.id }, r.status);
         }
         ({ data: t } = await read());
       } catch (e) {
         console.error('jeko status poll', e);
       }
-      const { jeko_payment_id: _p, jeko_transfer_id: _t, dest, ...publicRow } = t!;
+      const {
+        jeko_payment_id: _p, jeko_transfer_id: _t, jeko_refund_id: _r, tentatives_reversement: _n, dest, ...publicRow
+      } = t!;
       // Compte Seno d'un autre utilisateur : numéro masqué (07 •• •• 45 67), comme l'historique
       const owner = (dest as unknown as { proprietaire: string } | null)?.proprietaire;
       if (owner && owner !== userId) {

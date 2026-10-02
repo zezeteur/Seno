@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -35,6 +34,9 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
   bool _isFlipped = false;
   bool _torchEnabled = false;
   bool _handlingScan = false;
+
+  /// QR en cours de vérification (chargement sur la caméra)
+  bool _resolving = false;
   final Random _random = Random();
   late List<IconPosition> _iconPositions;
 
@@ -328,6 +330,16 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
                 Positioned.fill(
                   child: CustomPaint(painter: QRScannerOverlay()),
                 ),
+                // Vérification du QR scanné
+                if (_resolving)
+                  const Positioned.fill(
+                    child: ColoredBox(
+                      color: Colors.black54,
+                      child: Center(
+                        child: CircularProgressIndicator(color: Colors.white),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -410,7 +422,8 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
     try {
       pseudo = (await SupabaseService.getLockProfile()).pseudo;
     } catch (e) {
-      if (mounted) ToastService.showError(context, authErrorMessage(context, e));
+      if (mounted)
+        ToastService.showError(context, authErrorMessage(context, e));
       return;
     } finally {
       if (mounted) setState(() => _sharing = false);
@@ -435,8 +448,9 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
           const Color(0xFF0084FF), 'fb-messenger://share?link=$encoded'),
       _ShareApp('Email', HugeIcons.strokeRoundedMail01, Colors.redAccent,
           'mailto:?subject=Seno&body=$encoded'),
-      _ShareApp(context.tr('copy'), HugeIcons.strokeRoundedCopy01,
-          Colors.black, null, copy: true),
+      _ShareApp(
+          context.tr('copy'), HugeIcons.strokeRoundedCopy01, Colors.black, null,
+          copy: true),
       _ShareApp(context.tr('more'), HugeIcons.strokeRoundedMoreHorizontal,
           AppColors.textSecondary, null),
     ];
@@ -552,106 +566,50 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
     );
   }
 
-  /// QR scanné : résolution côté serveur puis fiche du destinataire
+  /// QR scanné : résolution côté serveur puis écran du montant
   Future<void> _onScanned(String value) async {
     if (_handlingScan) return;
     _handlingScan = true;
+    setState(() => _resolving = true);
     await _cameraController.stop();
+    var leaving = false;
     try {
       final payee = await SupabaseService.resolveQr(value);
       if (!mounted) return;
+      setState(() => _resolving = false);
       if (payee.isSelf) {
         ToastService.showInfo(context, context.tr('qr_self'));
+      } else if (payee.numeroMasque == null) {
+        // Aucun compte de réception : rien à payer
+        ToastService.showError(context, context.tr('qr_no_default_account'));
       } else {
-        await _showPayeeSheet(payee);
+        // Directement sur le montant ; retour vers l'accueil (scanner et
+        // écran d'envoi intermédiaire retirés)
+        Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(
+              builder: (_) => SendMoneyScreen(
+                initialRecipient: (
+                  value: payee.pseudo,
+                  avatarUrl: payee.avatarUrl,
+                  phone: null,
+                ),
+              ),
+            ),
+            (route) => route.isFirst);
+        leaving = true;
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
+        setState(() => _resolving = false);
         ToastService.showError(context, authErrorMessage(context, e));
+      }
       // Évite de re-scanner le même QR invalide en boucle
       await Future.delayed(const Duration(seconds: 2));
     } finally {
       _handlingScan = false;
-      if (mounted) await _cameraController.start();
+      // Écran du montant ouvert : la caméra reste coupée
+      if (mounted && !leaving) await _cameraController.start();
     }
-  }
-
-  Future<void> _showPayeeSheet(QrPayee payee) {
-    final textTheme = Theme.of(context).textTheme;
-    final initial =
-        payee.prenom.isNotEmpty ? payee.prenom[0].toUpperCase() : '?';
-    return showAppBottomSheet<void>(
-      context: context,
-      title: context.tr('qr_pay_to'),
-      builder: (sheetContext) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Center(
-            child: CircleAvatar(
-              radius: 36,
-              backgroundColor: Colors.black,
-              foregroundImage: payee.avatarUrl != null
-                  ? CachedNetworkImageProvider(payee.avatarUrl!)
-                  : null,
-              child: Text(
-                initial,
-                style: textTheme.headlineSmall?.copyWith(
-                  color: AppColors.primary,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            payee.prenom,
-            textAlign: TextAlign.center,
-            style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          Text(
-            '@${payee.pseudo}',
-            textAlign: TextAlign.center,
-            style:
-                textTheme.bodyMedium?.copyWith(color: AppColors.textSecondary),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            payee.numeroMasque == null
-                ? context.tr('qr_no_default_account')
-                : '${payee.reseau} · +225 ${payee.numeroMasque}',
-            textAlign: TextAlign.center,
-            style: textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 24),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.black,
-              foregroundColor: Colors.white,
-              minimumSize: const Size.fromHeight(52),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-            onPressed: payee.numeroMasque == null
-                ? null
-                : () {
-                    // Envoi vers le pseudo scanné : l'écran s'ouvre sur le montant
-                    Navigator.of(sheetContext).pop();
-                    Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => SendMoneyScreen(
-                        initialRecipient: (
-                          value: payee.pseudo,
-                          avatarUrl: payee.avatarUrl,
-                          phone: null,
-                        ),
-                      ),
-                    ));
-                  },
-            child: Text(context.tr('send')),
-          ),
-        ],
-      ),
-    );
   }
 
   Widget _buildFlipCardFront() {

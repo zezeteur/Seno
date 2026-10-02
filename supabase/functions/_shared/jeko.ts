@@ -110,34 +110,45 @@ export function getTransfer(id: string) {
   return jeko<{ id: string; status: JekoStatus }>('GET', `/transfers/${id}`);
 }
 
-/** Reversement depuis le solde de la boutique vers le destinataire */
+
+/** Envoi depuis le solde de la boutique (reversement au destinataire ou remboursement) */
 function createTransfer(p: {
   amount: number;
   reference: string;
   method: string;
   numero: string;
   name: string;
+  description: string;
 }) {
   return jeko<{ id: string; status: JekoStatus }>('POST', '/transfers', {
     storeId: env('JEKO_STORE_ID'),
     amountCents: p.amount * 100,
     currency: 'XOF',
     reference: p.reference,
-    description: 'Envoi Seno',
+    description: p.description,
     name: p.name,
     paymentMethod: p.method,
     identifier: { reference: `+225${p.numero}` },
   });
 }
 
-/** Référence Jèko ↔ envoi Seno : « seno-p-<uuid>-<n> » (collecte), « seno-t-<uuid> » (reversement) */
+/**
+ * Référence Jèko ↔ envoi Seno :
+ * « seno-p-<uuid>-<ts> » (collecte), « seno-t-<uuid>-<tentative> » (reversement),
+ * « seno-r-<uuid> » (remboursement). Anciens reversements : « seno-t-<uuid> ».
+ */
 export const paymentReference = (id: string) => `seno-p-${id}-${Date.now().toString(36)}`;
-export const transferReference = (id: string) => `seno-t-${id}`;
+const transferReference = (id: string, attempt: number) => `seno-t-${id}-${attempt}`;
+const refundReference = (id: string) => `seno-r-${id}`;
 
-export function parseReference(ref: unknown): { kind: 'p' | 't'; id: string } | null {
+export type JekoRef = { kind: 'p' | 't' | 'r'; id: string; attempt?: number };
+
+export function parseReference(ref: unknown): JekoRef | null {
   if (typeof ref !== 'string') return null;
-  const m = /^seno-([pt])-([0-9a-f-]{36})/.exec(ref);
-  return m ? { kind: m[1] as 'p' | 't', id: m[2] } : null;
+  const m = /^seno-([ptr])-([0-9a-f-]{36})(?:-(\d+))?/.exec(ref);
+  if (!m) return null;
+  const kind = m[1] as JekoRef['kind'];
+  return { kind, id: m[2], attempt: kind === 't' && m[3] ? Number(m[3]) : undefined };
 }
 
 export async function setStatus(admin: SupabaseClient, id: string, fields: Record<string, unknown>) {
@@ -148,40 +159,133 @@ export async function setStatus(admin: SupabaseClient, id: string, fields: Recor
   if (error) throw error;
 }
 
+// Reversement : 1 essai + 2 relances (après 2 puis 10 min), ensuite remboursement
+const RETRY_DELAYS_MIN = [2, 10];
+
 /** Collecte confirmée : lance le reversement une seule fois */
 async function onPaymentSucceeded(admin: SupabaseClient, id: string): Promise<void> {
   const { data: claimed, error } = await admin.rpc('claim_transfert_payout', { p_id: id });
   if (error) throw error;
   if (!claimed) return; // déjà traité (webhook dupliqué ou suivi en parallèle)
+  await launchPayout(admin, id);
+}
 
+/**
+ * Lance une tentative de reversement (envoi déjà passé en `transfert_en_cours`).
+ * Refus net de Jèko (4xx ou statut `error`) → relance ou remboursement.
+ * Issue incertaine (réseau, 5xx) → `transfert_echec` : l'argent est peut-être
+ * parti, on ne relance pas pour ne jamais payer deux fois.
+ */
+export async function launchPayout(admin: SupabaseClient, id: string): Promise<void> {
   const { data: t, error: readError } = await admin
     .from('transferts')
-    .select('montant, numero_destination, destinataire_label, reseaux:reseau_destination(abreviation)')
+    .select('montant, numero_destination, destinataire_label, tentatives_reversement, reseaux:reseau_destination(abreviation)')
     .eq('id', id)
     .single();
   if (readError) throw readError;
   const abbr = (t.reseaux as unknown as { abreviation: string }).abreviation.toUpperCase();
+  const attempt = t.tentatives_reversement + 1;
+  await setStatus(admin, id, { tentatives_reversement: attempt, jeko_transfer_id: null });
 
+  let transfer: { id: string; status: JekoStatus };
   try {
-    const transfer = await createTransfer({
+    transfer = await createTransfer({
       amount: t.montant,
-      reference: transferReference(id),
+      reference: transferReference(id, attempt),
       method: JEKO_METHODS[abbr],
       numero: t.numero_destination,
       name: t.destinataire_label,
-    });
-    await setStatus(admin, id, {
-      jeko_transfer_id: transfer.id,
-      ...(transfer.status === 'success' ? { statut: 'reussi' } : {}),
-      ...(transfer.status === 'error' ? { statut: 'transfert_echec' } : {}),
+      description: 'Envoi Seno',
     });
   } catch (e) {
-    // Fonds collectés mais non reversés : reste visible pour traitement manuel.
     // `erreur` est renvoyée à l'app : code Jèko seulement, le détail reste dans les logs.
-    console.error('jeko transfer', id, e);
+    console.error('jeko transfer', id, attempt, e);
+    if (e instanceof JekoError && e.status < 500) return onPayoutFailed(admin, id, attempt, e.code);
     await setStatus(admin, id, {
       statut: 'transfert_echec',
       erreur: e instanceof JekoError ? e.code : 'transfer_unavailable',
+    });
+    return;
+  }
+  await setStatus(admin, id, {
+    jeko_transfer_id: transfer.id,
+    ...(transfer.status === 'success' ? { statut: 'reussi', erreur: null } : {}),
+  });
+  if (transfer.status === 'error') await onPayoutFailed(admin, id, attempt, 'transfer_failed');
+}
+
+/** Reversement refusé : relance programmée, ou remboursement après la dernière tentative */
+async function onPayoutFailed(
+  admin: SupabaseClient,
+  id: string,
+  attempt: number | undefined,
+  reason: string,
+): Promise<void> {
+  const { data: t, error } = await admin
+    .from('transferts').select('statut, tentatives_reversement').eq('id', id).single();
+  if (error) throw error;
+  // Échec d'une ancienne tentative (webhook en retard) ou déjà traité
+  if (t.statut !== 'transfert_en_cours') return;
+  if (attempt !== undefined && attempt !== t.tentatives_reversement) return;
+
+  const delay = RETRY_DELAYS_MIN[t.tentatives_reversement - 1];
+  if (delay !== undefined) {
+    const { error: e } = await admin
+      .from('transferts')
+      .update({
+        statut: 'reversement_relance',
+        erreur: reason,
+        prochaine_tentative: new Date(Date.now() + delay * 60_000).toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .eq('statut', 'transfert_en_cours')
+      .eq('tentatives_reversement', t.tentatives_reversement);
+    if (e) throw e;
+    return;
+  }
+  await startRefund(admin, id, reason);
+}
+
+/** Échec définitif : rembourse `total` (montant + frais) sur le numéro source */
+async function startRefund(admin: SupabaseClient, id: string, reason: string): Promise<void> {
+  const { data: t, error } = await admin
+    .from('transferts')
+    .update({ statut: 'rembourse_en_cours', erreur: reason, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('statut', 'transfert_en_cours')
+    .select('total, numero_source, source:compte_source(reseaux:id_reseau(abreviation))')
+    .maybeSingle();
+  if (error) throw error;
+  if (!t) return; // déjà pris en charge
+
+  const abbr = (t.source as unknown as { reseaux: { abreviation: string } } | null)
+    ?.reseaux.abreviation.toUpperCase();
+  const method = abbr ? JEKO_METHODS[abbr] : undefined;
+  if (!method) {
+    // Compte source supprimé : réseau inconnu, remboursement manuel
+    await setStatus(admin, id, { statut: 'remboursement_echec', erreur: 'refund_no_source' });
+    return;
+  }
+  try {
+    const refund = await createTransfer({
+      amount: t.total,
+      reference: refundReference(id),
+      method,
+      numero: t.numero_source,
+      name: 'Client Seno',
+      description: 'Remboursement Seno',
+    });
+    await setStatus(admin, id, {
+      jeko_refund_id: refund.id,
+      ...(refund.status === 'success' ? { statut: 'rembourse' } : {}),
+      ...(refund.status === 'error' ? { statut: 'remboursement_echec', erreur: 'refund_failed' } : {}),
+    });
+  } catch (e) {
+    console.error('jeko refund', id, e);
+    await setStatus(admin, id, {
+      statut: 'remboursement_echec',
+      erreur: e instanceof JekoError ? e.code : 'refund_unavailable',
     });
   }
 }
@@ -189,7 +293,7 @@ async function onPaymentSucceeded(admin: SupabaseClient, id: string): Promise<vo
 /** Applique un statut Jèko (webhook ou suivi) à l'étape concernée */
 export async function applyJekoStatus(
   admin: SupabaseClient,
-  ref: { kind: 'p' | 't'; id: string },
+  ref: JekoRef,
   status: JekoStatus,
   reason?: string | null,
 ) {
@@ -205,13 +309,23 @@ export async function applyJekoStatus(
     if (error) throw error;
     return;
   }
+  if (ref.kind === 'r') {
+    const { error } = await admin
+      .from('transferts')
+      .update({
+        statut: status === 'success' ? 'rembourse' : 'remboursement_echec',
+        ...(status === 'success' ? {} : { erreur: reason ?? 'refund_failed' }),
+        updated_at: now,
+      })
+      .eq('id', ref.id)
+      .eq('statut', 'rembourse_en_cours');
+    if (error) throw error;
+    return;
+  }
+  if (status === 'error') return onPayoutFailed(admin, ref.id, ref.attempt, reason ?? 'transfer_failed');
   const { error } = await admin
     .from('transferts')
-    .update({
-      statut: status === 'success' ? 'reussi' : 'transfert_echec',
-      erreur: status === 'success' ? null : (reason ?? 'transfer_failed'),
-      updated_at: now,
-    })
+    .update({ statut: 'reussi', erreur: null, updated_at: now })
     .eq('id', ref.id)
     .eq('statut', 'transfert_en_cours');
   if (error) throw error;
