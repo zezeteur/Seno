@@ -1188,6 +1188,18 @@ class SupabaseService {
     );
   }
 
+  /// Envoi récent par son id (retour de la page de paiement), sans cache
+  static Future<SenoTransaction?> findSentTransaction(String id) async {
+    final rows = await client!.rpc('get_my_transactions', params: {
+      'p_limit': 50,
+      'p_sens': 'envoi',
+    }) as List;
+    for (final tx in _decodeTransactions(rows)) {
+      if (tx.id == id) return tx;
+    }
+    return null;
+  }
+
   /// Dernière copie de l'historique, sans attendre le réseau
   static List<SenoTransaction>? peekTransactions(
           {String cacheName = 'transactions'}) =>

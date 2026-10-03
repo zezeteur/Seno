@@ -120,6 +120,7 @@ Deno.serve(async (req) => {
 
       try {
         const payment = await createPaymentRequest({
+          transfertId: row.id,
           amount: total,
           reference: paymentReference(row.id),
           method: sourceMethod,

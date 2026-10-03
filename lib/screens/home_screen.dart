@@ -4,6 +4,7 @@ import '../l10n/app_strings.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:hugeicons/hugeicons.dart';
 import '../widgets/dynamic_qr.dart';
+import '../services/payment_return_service.dart';
 import '../services/recents_store.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_colors.dart';
@@ -43,6 +44,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     SupabaseService.transactionsRevision.addListener(_loadTransactions);
     // Statuts en direct (envois et réceptions) tant que l'app est ouverte
     SupabaseService.subscribeTransactions();
+    // Lien de retour de paiement reçu au démarrage : ouvert par-dessus l'accueil
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => PaymentReturnService.homeReady());
   }
 
   @override

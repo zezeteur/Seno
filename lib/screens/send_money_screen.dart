@@ -8,6 +8,7 @@ import '../l10n/app_strings.dart';
 import '../models/compte.dart';
 import '../models/reseau.dart';
 import '../services/recents_store.dart';
+import '../services/payment_return_service.dart';
 import '../services/supabase_service.dart';
 import '../services/live_update_service.dart';
 import '../theme/app_colors.dart';
@@ -1758,6 +1759,8 @@ class _SendProgressPageState extends State<_SendProgressPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Retour de la page de paiement sur cet envoi : on reste ici
+    PaymentReturnService.trackedTransfertId = widget.transfertId;
     // Nouvel envoi « en cours » visible dans l'historique
     SupabaseService.transactionsRevision.value++;
     // Wave / MTN / Moov : validation via l'app ou la page de l'opérateur
@@ -1833,6 +1836,9 @@ class _SendProgressPageState extends State<_SendProgressPage>
     _timer?.cancel();
     _expiry?.cancel();
     _events?.cancel();
+    if (PaymentReturnService.trackedTransfertId == widget.transfertId) {
+      PaymentReturnService.trackedTransfertId = null;
+    }
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

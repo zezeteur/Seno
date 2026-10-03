@@ -23,8 +23,6 @@ export function adminClient(): SupabaseClient {
 const ENV_FORMATS: Record<string, RegExp> = {
   JEKO_API_URL: /^https:\/\/\S+$/,
   JEKO_STORE_ID: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-  JEKO_SUCCESS_URL: /^https?:\/\/\S+$/,
-  JEKO_ERROR_URL: /^https?:\/\/\S+$/,
 };
 
 /** Secret nettoyé (espaces, guillemets collés) et vérifié : erreur explicite sinon */
@@ -71,7 +69,14 @@ async function jeko<T>(method: 'GET' | 'POST', path: string, body?: unknown): Pr
 export type JekoStatus = 'pending' | 'success' | 'error';
 
 /** Collecte sur le compte mobile money de l'expéditeur (USSD / redirection opérateur) */
+/** Page de retour Jèko (http obligatoire) : la fonction `pay-return` rouvre l'app sur l'envoi */
+function returnUrl(transfertId: string, status: 'success' | 'error'): string {
+  const base = Deno.env.get('SUPABASE_URL')!.replace(/\/$/, '');
+  return `${base}/functions/v1/pay-return?t=${transfertId}&s=${status}`;
+}
+
 export function createPaymentRequest(p: {
+  transfertId: string;
   amount: number;
   reference: string;
   method: string;
@@ -91,8 +96,8 @@ export function createPaymentRequest(p: {
           paymentMethod: p.method,
           payerPhone: `+225${p.numero}`,
           forceProviderDirect: true,
-          successUrl: env('JEKO_SUCCESS_URL'),
-          errorUrl: env('JEKO_ERROR_URL'),
+          successUrl: returnUrl(p.transfertId, 'success'),
+          errorUrl: returnUrl(p.transfertId, 'error'),
         },
       },
     },
