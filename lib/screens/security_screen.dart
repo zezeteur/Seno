@@ -3,6 +3,7 @@ import '../l10n/app_strings.dart';
 import 'package:hugeicons/hugeicons.dart';
 import '../theme/app_colors.dart';
 import 'change_access_code_screen.dart';
+import 'connected_devices_screen.dart';
 
 class SecurityScreen extends StatefulWidget {
   const SecurityScreen({super.key});
@@ -126,6 +127,24 @@ class _SecurityScreenState extends State<SecurityScreen> {
                           onTap: () => Navigator.of(context).push(
                             MaterialPageRoute(
                               builder: (_) => const ChangeAccessCodeScreen(),
+                            ),
+                          ),
+                        ),
+                        Divider(
+                          height: 1,
+                          color: AppColors.textSecondary.withValues(alpha: 0.2),
+                        ),
+                        _buildMenuItem(
+                          icon: HugeIcons.strokeRoundedSmartPhone01,
+                          title: context.tr('connected_devices'),
+                          subtitle: context.tr('connected_devices_subtitle'),
+                          trailing: Icon(
+                            Icons.chevron_right,
+                            color: AppColors.textSecondary,
+                          ),
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const ConnectedDevicesScreen(),
                             ),
                           ),
                         ),

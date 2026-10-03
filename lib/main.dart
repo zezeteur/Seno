@@ -1,4 +1,5 @@
 import 'services/cache_store.dart';
+import 'services/secure_session_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -30,6 +31,13 @@ void main() async {
       await Supabase.initialize(
         url: AppConfig.supabaseUrl,
         anonKey: AppConfig.supabaseAnonKey,
+        // Session chiffrée (Keychain / Keystore), même clé que le stockage par défaut
+        authOptions: FlutterAuthClientOptions(
+          localStorage: SecureSessionStorage(
+            persistSessionKey:
+                'sb-${Uri.parse(AppConfig.supabaseUrl).host.split('.').first}-auth-token',
+          ),
+        ),
       );
     } catch (e) {
       debugPrint('Erreur lors de l\'initialisation de Supabase: $e');

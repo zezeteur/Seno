@@ -12,6 +12,7 @@ import '../services/supabase_service.dart';
 import '../theme/app_colors.dart';
 import '../utils/pair_digits_formatter.dart';
 import '../utils/toast_service.dart';
+import '../widgets/photo_viewer.dart';
 import '../widgets/transaction_list.dart';
 import '../widgets/user_avatar.dart';
 import 'help_support_screen.dart';
@@ -430,13 +431,23 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen>
                           Column(
                             children: [
                               // Autre partie, montant et statut
-                              UserAvatar(
-                                pseudo: title,
-                                avatarUrl: _tx.avatarUrl,
-                                merchantCategory: _tx.merchantCategory,
-                                radius: 36,
-                                backgroundColor: AppColors.secondary,
-                                foregroundColor: Colors.white,
+                              GestureDetector(
+                                onTap: _tx.avatarUrl != null
+                                    ? () => showPhotoViewer(
+                                        context, _tx.avatarUrl!,
+                                        heroTag: 'tx-photo')
+                                    : null,
+                                child: Hero(
+                                  tag: 'tx-photo',
+                                  child: UserAvatar(
+                                    pseudo: title,
+                                    avatarUrl: _tx.avatarUrl,
+                                    merchantCategory: _tx.merchantCategory,
+                                    radius: 36,
+                                    backgroundColor: AppColors.secondary,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                ),
                               ),
                               const SizedBox(height: 12),
                               Padding(

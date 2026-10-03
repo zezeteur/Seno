@@ -9,6 +9,7 @@ import '../models/compte.dart';
 import '../models/reseau.dart';
 import '../services/recents_store.dart';
 import '../services/supabase_service.dart';
+import '../services/live_update_service.dart';
 import '../theme/app_colors.dart';
 import '../utils/pair_digits_formatter.dart';
 import '../utils/toast_service.dart';
@@ -854,6 +855,13 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
     }
     _idempotencyKey = null;
     if (!mounted) return;
+
+    // Live Update Android : suivi visible hors de l'app (validation Wave…)
+    LiveTransferTracker.start(
+      transfertId: started.id,
+      amount: '${_formatAmount(_total.toString())} FCFA',
+      locale: Localizations.localeOf(context),
+    );
 
     // Page de suivi posée directement sur l'accueil : sa fermeture y ramène,
     // quel que soit l'écran d'origine (QR, détails de transaction…)
@@ -1787,6 +1795,7 @@ class _SendProgressPageState extends State<_SendProgressPage>
     if (!mounted || _done) return;
     final changed = statut != _statut;
     setState(() => _statut = statut);
+    LiveTransferTracker.update(widget.transfertId, statut);
     if (statut != 'collecte_en_attente') {
       _expiry?.cancel();
       _expired = false;

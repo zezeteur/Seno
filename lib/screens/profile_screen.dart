@@ -13,6 +13,7 @@ import '../utils/toast_service.dart';
 import '../widgets/app_bottom_sheet.dart';
 import '../widgets/photo_viewer.dart';
 import '../widgets/user_avatar.dart';
+import 'login_screen.dart';
 
 enum _AvatarAction { view, camera, gallery, delete }
 
@@ -30,7 +31,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String? _avatarUrl;
   // Préchargés pour ouvrir les modales sans loader (null = pas encore connu)
   ({DateTime? value})? _nextPseudoChange;
-  ({DateTime? value})? _birthDate;
   bool _uploadingAvatar = false;
 
   @override
@@ -73,15 +73,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _loadEditorData();
   }
 
-  /// Date de naissance et délai du pseudo, chargés en arrière-plan
+  /// Délai du pseudo, chargé en arrière-plan
   Future<void> _loadEditorData() async {
     await Future.wait([
       SupabaseService.getNextPseudoChange()
           .then((v) =>
               mounted ? setState(() => _nextPseudoChange = (value: v)) : null)
-          .catchError((_) {}),
-      SupabaseService.getBirthDate()
-          .then((v) => mounted ? setState(() => _birthDate = (value: v)) : null)
           .catchError((_) {}),
     ]);
   }
@@ -249,6 +246,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
     } finally {
       if (mounted) setState(() => _uploadingAvatar = false);
+    }
+  }
+
+  Future<void> _handleSignOut() async {
+    final confirm = await showConfirmSheet(
+      context: context,
+      title: context.tr('logout'),
+      message: context.tr('logout_confirm'),
+      confirmLabel: context.tr('logout'),
+      destructive: true,
+    );
+    if (!confirm || !mounted) return;
+    try {
+      await SupabaseService.unsubscribeTransactions();
+      await Supabase.instance.client.auth.signOut();
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
+      ToastService.showSuccess(context, context.tr('logout_success'));
+    } catch (_) {
+      if (mounted) ToastService.showError(context, context.tr('logout_error'));
     }
   }
 
@@ -452,16 +472,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ),
                           ),
                         ),
-                        divider,
-                        _buildMenuItem(
-                          icon: HugeIcons.strokeRoundedCalendar03,
-                          title: context.tr('edit_age'),
-                          onTap: () => _openEditor(
-                            context.tr('edit_age'),
-                            _BirthDateEditor(initial: _birthDate),
-                          ),
-                        ),
                       ],
+                    ),
+                  ),
+                  // Déconnexion
+                  Container(
+                    margin:
+                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surface,
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: _buildMenuItem(
+                      icon: HugeIcons.strokeRoundedLogout01,
+                      title: context.tr('logout'),
+                      color: AppColors.error,
+                      onTap: _handleSignOut,
                     ),
                   ),
                   SizedBox(height: mediaQuery.viewPadding.bottom + 16),
@@ -830,106 +856,6 @@ class _PseudoEditorState extends State<_PseudoEditor> {
               .bodySmall
               ?.copyWith(color: AppColors.textSecondary),
         ),
-      ],
-    );
-  }
-}
-
-/// Modifier la date de naissance (âge minimum : 13 ans)
-class _BirthDateEditor extends StatefulWidget {
-  final ({DateTime? value})? initial;
-  const _BirthDateEditor({this.initial});
-
-  @override
-  State<_BirthDateEditor> createState() => _BirthDateEditorState();
-}
-
-class _BirthDateEditorState extends State<_BirthDateEditor> {
-  late final DateTime _maxDate = () {
-    final now = DateTime.now();
-    return DateTime(now.year - 13, now.month, now.day);
-  }();
-  DateTime? _date;
-  bool _loading = false;
-
-  @override
-  void initState() {
-    super.initState();
-    final preloaded = widget.initial;
-    if (preloaded != null) {
-      _date = _clamp(preloaded.value);
-    } else {
-      _loadDate();
-    }
-  }
-
-  DateTime _clamp(DateTime? date) {
-    final initial = date ?? DateTime(DateTime.now().year - 25, 1, 1);
-    return initial.isAfter(_maxDate) ? _maxDate : initial;
-  }
-
-  Future<void> _loadDate() async {
-    DateTime? date;
-    try {
-      date = await SupabaseService.getBirthDate();
-    } catch (_) {}
-    if (!mounted) return;
-    setState(() => _date = _clamp(date));
-  }
-
-  String _formatDate(DateTime d) =>
-      '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
-
-  Future<void> _save() async {
-    setState(() => _loading = true);
-    try {
-      await SupabaseService.updateProfile(dateNaissance: _date);
-      if (mounted) Navigator.of(context).pop(true);
-    } catch (_) {
-      if (!mounted) return;
-      ToastService.showError(context, context.tr('profile_update_error'));
-      setState(() => _loading = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final date = _date;
-    if (date == null) {
-      return const SizedBox(
-        height: 280,
-        child: Center(child: CircularProgressIndicator()),
-      );
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Center(
-          child: Text(
-            _formatDate(date),
-            style: Theme.of(context)
-                .textTheme
-                .headlineMedium
-                ?.copyWith(fontWeight: FontWeight.w600),
-          ),
-        ),
-        const SizedBox(height: 16),
-        SizedBox(
-          height: 216,
-          child: CupertinoTheme(
-            data: CupertinoThemeData(brightness: Theme.of(context).brightness),
-            child: CupertinoDatePicker(
-              mode: CupertinoDatePickerMode.date,
-              dateOrder: DatePickerDateOrder.dmy,
-              initialDateTime: date,
-              minimumDate: DateTime(1900),
-              maximumDate: _maxDate,
-              onDateTimeChanged: (d) => setState(() => _date = d),
-            ),
-          ),
-        ),
-        const SizedBox(height: 24),
-        _saveButton(context, loading: _loading, onPressed: _save),
       ],
     );
   }

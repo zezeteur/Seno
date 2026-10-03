@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.neotech.seno"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = maxOf(flutter.compileSdkVersion, 36) // 36 requis pour Live Updates (Android 16)
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

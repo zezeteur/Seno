@@ -556,18 +556,6 @@ class SupabaseService {
     await CacheStore.remove(supabase.auth.currentUser!.id, 'merchant');
   }
 
-  /// Date de naissance de l'utilisateur connecté
-  static Future<DateTime?> getBirthDate() async {
-    final supabase = client!;
-    final row = await supabase
-        .from('profiles')
-        .select('date_naissance')
-        .eq('id', supabase.auth.currentUser!.id)
-        .maybeSingle();
-    final value = row?['date_naissance'] as String?;
-    return value == null ? null : DateTime.tryParse(value);
-  }
-
   /// Préférences de notifications par défaut (identiques à la colonne SQL)
   static const defaultNotifPrefs = {
     'push': true,
@@ -692,7 +680,6 @@ class SupabaseService {
     String? nom,
     String? prenoms,
     String? pseudo,
-    DateTime? dateNaissance,
   }) async {
     final supabase = client!;
     final userId = supabase.auth.currentUser!.id;
@@ -702,8 +689,6 @@ class SupabaseService {
           if (nom != null) 'nom': nom,
           if (prenoms != null) 'prenoms': prenoms,
           if (pseudo != null) 'pseudo': pseudo,
-          if (dateNaissance != null)
-            'date_naissance': dateNaissance.toIso8601String().substring(0, 10),
         })
         .eq('id', userId)
         .select('id');
@@ -1153,6 +1138,20 @@ class SupabaseService {
   }
 
   /// App en arrière-plan / déconnexion : libère la connexion Realtime
+  /// Sessions actives de l'utilisateur (appareils connectés)
+  static Future<List<Map<String, dynamic>>> listMySessions() async {
+    final rows = await client!.rpc('list_my_sessions');
+    return List<Map<String, dynamic>>.from(rows as List);
+  }
+
+  /// Déconnecte un autre appareil
+  static Future<void> revokeSession(String sessionId) =>
+      client!.rpc('revoke_my_session', params: {'p_session_id': sessionId});
+
+  /// Déconnecte tous les appareils sauf celui-ci
+  static Future<void> signOutOtherDevices() =>
+      client!.auth.signOut(scope: SignOutScope.others);
+
   static Future<void> unsubscribeTransactions() async {
     final channel = _transactionsChannel;
     _transactionsChannel = null;

@@ -8,7 +8,6 @@ import '../services/supabase_service.dart';
 import '../theme/app_colors.dart';
 import '../utils/toast_service.dart';
 import '../widgets/user_avatar.dart';
-import 'login_screen.dart';
 import 'settings_screen.dart';
 import 'security_screen.dart';
 import 'notifications_screen.dart';
@@ -78,34 +77,6 @@ class _AccountScreenState extends State<AccountScreen> {
         .where((v) => v.isNotEmpty)
         .join(' ');
     return name.isNotEmpty ? name : context.tr('user');
-  }
-
-  Future<void> _handleSignOut() async {
-    final confirm = await showConfirmSheet(
-      context: context,
-      title: context.tr('logout'),
-      message: context.tr('logout_confirm'),
-      confirmLabel: context.tr('logout'),
-      destructive: true,
-    );
-
-    if (confirm) {
-      try {
-        await SupabaseService.unsubscribeTransactions();
-        await supabase.auth.signOut();
-        if (mounted) {
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const LoginScreen()),
-            (route) => false,
-          );
-          ToastService.showSuccess(context, context.tr('logout_success'));
-        }
-      } catch (e) {
-        if (mounted) {
-          ToastService.showError(context, context.tr('logout_error'));
-        }
-      }
-    }
   }
 
   Future<void> _loadMerchant() async {
@@ -492,17 +463,6 @@ class _AccountScreenState extends State<AccountScreen> {
                           },
                         ),
                       ],
-                    ),
-                  ),
-                  // Déconnexion
-                  Container(
-                    margin:
-                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    child: _buildMenuItem(
-                      icon: HugeIcons.strokeRoundedLogout01,
-                      title: context.tr('logout'),
-                      onTap: _handleSignOut,
-                      iconColor: Colors.red,
                     ),
                   ),
                   // Fin de page : rien n'est caché derrière la navbar
