@@ -40,6 +40,13 @@ async function accessToken(sa: ServiceAccount): Promise<string> {
   return (await res.json()).access_token;
 }
 
+/** Vérifie que Firebase accepte le compte de service (sans rien envoyer) : utilisé par status-check */
+export async function checkFcmAuth(): Promise<void> {
+  const raw = Deno.env.get('FCM_SERVICE_ACCOUNT');
+  if (!raw) throw new Error('missing_env_FCM_SERVICE_ACCOUNT');
+  await accessToken(JSON.parse(raw) as ServiceAccount);
+}
+
 export type PushMessage = { title: string; body: string; categorie: string };
 
 /** Envoie à chaque token (8 en parallèle) et supprime les tokens invalides. */
