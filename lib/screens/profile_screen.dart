@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../services/push_service.dart';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -260,6 +261,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (!confirm || !mounted) return;
     try {
       await SupabaseService.unsubscribeTransactions();
+      await PushService.unregister();
       await Supabase.instance.client.auth.signOut();
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(

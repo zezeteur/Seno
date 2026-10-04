@@ -1,4 +1,6 @@
+import 'services/supabase_service.dart';
 import 'services/cache_store.dart';
+import 'services/push_service.dart';
 import 'services/payment_return_service.dart';
 import 'services/secure_session_storage.dart';
 import 'package:flutter/material.dart';
@@ -44,6 +46,9 @@ void main() async {
       debugPrint('Erreur lors de l\'initialisation de Supabase: $e');
     }
   }
+
+  // Notifications push (token FCM enregistré à la connexion)
+  if (SupabaseService.isInitialized) await PushService.init();
 
   // Retour de la page de paiement : rouvre l'envoi concerné
   PaymentReturnService.init(MyApp.navigatorKey);

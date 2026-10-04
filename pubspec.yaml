@@ -1,7 +1,7 @@
 name: seno
 description: Une application de paiement rapide
 publish_to: 'none'
-version: 1.0.0+1
+version: 0.7.0+1
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -34,6 +34,9 @@ dependencies:
   country_flags: ^4.1.2
   gal: ^2.3.3
   app_links: ^7.2.1
+  firebase_core: ^4.15.0
+  firebase_messaging: ^16.7.0
+  package_info_plus: ^10.2.2
 
 dev_dependencies:
   flutter_test:

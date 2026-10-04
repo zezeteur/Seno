@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../services/push_service.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -291,6 +292,7 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
   Future<void> _signOut() async {
     try {
       await SupabaseService.unsubscribeTransactions();
+      await PushService.unregister();
       await SupabaseService.client?.auth.signOut();
     } catch (_) {
       // Session déjà invalide côté serveur : la déconnexion locale suffit

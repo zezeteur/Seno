@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../utils/toast_service.dart';
 import '../l10n/app_strings.dart';
 import '../widgets/app_bottom_sheet.dart';
 import '../widgets/contact_support_sheet.dart';
 import 'package:hugeicons/hugeicons.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../theme/app_colors.dart';
 
 class HelpSupportScreen extends StatefulWidget {
@@ -23,6 +26,19 @@ class HelpSupportScreen extends StatefulWidget {
 }
 
 class _HelpSupportScreenState extends State<HelpSupportScreen> {
+  /// Version installée (numéro de build inclus), lue au démarrage de l'écran
+  String? _version;
+
+  @override
+  void initState() {
+    super.initState();
+    PackageInfo.fromPlatform().then((info) {
+      if (mounted) {
+        setState(() => _version = '${info.version} (${info.buildNumber})');
+      }
+    });
+  }
+
   Future<void> _confirmSignOut() async {
     final confirm = await showConfirmSheet(
       context: context,
@@ -36,12 +52,22 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
     await widget.onSignOut!();
   }
 
+  /// Copie « Seno v1.0.0 (1) » (utile pour le support)
+  Future<void> _copyVersion() async {
+    final version = _version;
+    if (version == null) return;
+    await Clipboard.setData(ClipboardData(text: 'Seno v$version'));
+    HapticFeedback.lightImpact();
+    if (mounted) ToastService.showInfo(context, context.tr('version_copied'));
+  }
+
   Widget _buildMenuItem({
     required dynamic icon,
     required String title,
     required String? subtitle,
     required VoidCallback? onTap,
     Color? iconColor,
+    bool showChevron = true,
   }) {
     return Material(
       type: MaterialType.transparency,
@@ -76,10 +102,12 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                     ),
               )
             : null,
-        trailing: Icon(
-          Icons.chevron_right,
-          color: AppColors.textSecondary,
-        ),
+        trailing: showChevron
+            ? Icon(
+                Icons.chevron_right,
+                color: AppColors.textSecondary,
+              )
+            : null,
         onTap: onTap,
       ),
     );
@@ -200,10 +228,9 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                           _buildMenuItem(
                             icon: HugeIcons.strokeRoundedHelpCircle,
                             title: context.tr('about'),
-                            subtitle: 'Version 1.0.0',
-                            onTap: () {
-                              // Fonctionnalité à venir
-                            },
+                            subtitle: _version != null ? 'Version $_version' : null,
+                            showChevron: false,
+                            onTap: _copyVersion,
                           ),
                         ],
                       ),

@@ -1,3 +1,4 @@
+import '../widgets/app_banners.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../l10n/app_strings.dart';
@@ -191,6 +192,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       children: [
         // Carte de solde jaune : fixe en haut
         _buildBalanceCard(context),
+        // Bannières d'information (back-office)
+        const AppBanners(),
         // Dernières transactions + accès à l'historique : seules à défiler
         Expanded(
           child: CustomScrollView(
