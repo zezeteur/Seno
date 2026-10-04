@@ -104,15 +104,30 @@ export function createPaymentRequest(p: {
   );
 }
 
+type Montant = { amount: number; currency: string };
+
 export function getPaymentRequest(id: string) {
-  return jeko<{ id: string; status: JekoStatus; errorReason?: string | null }>(
+  return jeko<{
+    id: string;
+    status: JekoStatus;
+    errorReason?: string | null;
+    transaction?: { id: string; amount: Montant; fees: Montant; status: JekoStatus } | null;
+  }>(
     'GET',
     `/payment_requests/${id}`,
   );
 }
 
 export function getTransfer(id: string) {
-  return jeko<{ id: string; status: JekoStatus }>('GET', `/transfers/${id}`);
+  return jeko<{
+    id: string;
+    status: JekoStatus;
+    amount?: Montant;
+    fees?: Montant;
+    paymentMethod?: string;
+    createdAt?: string;
+    transaction?: { id: string; status: JekoStatus } | null;
+  }>('GET', `/transfers/${id}`);
 }
 
 
@@ -334,4 +349,28 @@ export async function applyJekoStatus(
     .eq('id', ref.id)
     .eq('statut', 'transfert_en_cours');
   if (error) throw error;
+}
+
+export type JekoTransaction = {
+  id: string;
+  type: 'payment' | 'transfer' | 'escrow';
+  status: JekoStatus;
+  amount: Montant;
+  fees: Montant;
+  paymentMethod: string;
+  counterpartIdentifier: string;
+  reference: string;
+  createdAt: string;
+};
+
+/** Opérations du magasin entre deux dates incluses (YYYY-MM-DD), toutes pages */
+export async function listTransactions(startDate: string, endDate: string): Promise<JekoTransaction[]> {
+  const all: JekoTransaction[] = [];
+  for (let page = 1; page <= 200; page++) {
+    const q = new URLSearchParams({ storeId: env('JEKO_STORE_ID'), startDate, endDate, page: String(page), limit: '100' });
+    const res = await jeko<{ total: number; data: JekoTransaction[] }>('GET', `/transactions?${q}`);
+    all.push(...res.data);
+    if (!res.data.length || all.length >= res.total) return all;
+  }
+  throw new Error('jeko_transactions_too_many_pages');
 }
