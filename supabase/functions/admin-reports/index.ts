@@ -1,4 +1,5 @@
 import { adminClient, json } from '../_shared/jeko.ts';
+import { EMAIL_LOGO_ATTACHMENT } from '../_shared/email-logo.ts';
 
 // Rapport quotidien et alertes du back-office, envoyés par email (Resend).
 // Appelée par pg_cron (`admin-alerts` toutes les 5 min, `admin-daily-report` à 8 h)
@@ -19,7 +20,7 @@ async function sendEmail(to: string[], subject: string, html: string): Promise<v
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from, to, subject, html }),
+    body: JSON.stringify({ from, to, subject, html, attachments: [EMAIL_LOGO_ATTACHMENT] }),
   });
   if (!res.ok) throw new Error(`resend_${res.status}: ${await res.text()}`);
 }
@@ -28,7 +29,7 @@ function layout(title: string, body: string): string {
   const url = Deno.env.get('BACKOFFICE_URL');
   return `<!doctype html><html><body style="margin:0;background:#f4f4f5;font-family:Arial,sans-serif;color:#18181b">
 <div style="max-width:600px;margin:0 auto;padding:24px">
-  <div style="background:#FDFE96;border-radius:12px 12px 0 0;padding:16px 24px;font-weight:bold;font-size:20px">Seno</div>
+  <div style="background:#FDFE96;border-radius:12px 12px 0 0;padding:16px 24px"><img src="cid:seno-logo" alt="Seno" width="110" height="41" border="0" style="display:block;width:110px;height:41px;border:0"></div>
   <div style="background:#fff;border-radius:0 0 12px 12px;padding:24px">
     <h1 style="font-size:18px;margin:0 0 16px">${esc(title)}</h1>
     ${body}
