@@ -131,6 +131,12 @@ export function getTransfer(id: string) {
 }
 
 
+/** Solde disponible de la boutique, en FCFA (Jèko renvoie des centimes) */
+export async function getStoreBalance(): Promise<number> {
+  const b = await jeko<Montant>('GET', `/stores/${env('JEKO_STORE_ID')}/balance`);
+  return Math.floor(b.amount / 100);
+}
+
 /** Envoi depuis le solde de la boutique (reversement au destinataire ou remboursement) */
 function createTransfer(p: {
   amount: number;

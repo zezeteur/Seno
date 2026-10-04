@@ -81,6 +81,24 @@ Deno.serve(async (req) => {
         return json({ error: 'invalid_request' }, 400);
       }
 
+      // Liste noire du back-office : envoi interdit depuis / vers ce numéro
+      const { data: bloque, error: bloqueError } = await admin.rpc('numero_bloque', {
+        p_source: source.numero, p_destination: dest.numero,
+      });
+      if (bloqueError) throw bloqueError;
+      if (bloque) {
+        const { error: flagError } = await admin.rpc('fraud_flag', {
+          p_user: userId,
+          p_regle: 'liste_noire',
+          p_message: bloque === 'source'
+            ? `Tentative d'envoi depuis un numéro bloqué (${source.numero})`
+            : `Tentative d'envoi vers un numéro bloqué (${dest.numero})`,
+          p_details: { numero: bloque === 'source' ? source.numero : dest.numero, sens: bloque },
+        });
+        if (flagError) console.error('fraud_flag', flagError);
+        return json({ error: 'number_blocked' }, 403);
+      }
+
       // Frais recalculés côté serveur (même formule que l'app)
       const { data: frais, error: feeError } = await admin
         .from('frais_transfert').select('pourcentage').eq('id', 1).single();

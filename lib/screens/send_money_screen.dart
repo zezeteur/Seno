@@ -842,13 +842,18 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
       // Échec définitif côté serveur : la clé est consommée, la prochaine
       // tentative en génère une nouvelle. Erreur réseau : on la garde.
       final limitExceeded = e is AuthOtpException && e.code == 'limit_exceeded';
+      final blocked = e is AuthOtpException && e.code == 'number_blocked';
       if (e is AuthOtpException && e.code == 'payment_failed') {
         _idempotencyKey = null;
       }
       if (mounted) {
         setState(() => _loading = false);
         ToastService.showError(context,
-            context.tr(limitExceeded ? 'send_limit_exceeded' : 'send_failed'));
+            context.tr(limitExceeded
+                ? 'send_limit_exceeded'
+                : blocked
+                    ? 'send_number_blocked'
+                    : 'send_failed'));
         // Restants périmés (envoi depuis un autre appareil) : rechargés
         if (limitExceeded) _loadLimits();
       }

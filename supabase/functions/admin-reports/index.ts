@@ -1,4 +1,4 @@
-import { adminClient, json } from '../_shared/jeko.ts';
+import { adminClient, getStoreBalance, json } from '../_shared/jeko.ts';
 import { esc, fcfa, layout, sendEmail, validRecipients } from '../_shared/mail.ts';
 
 // Rapport quotidien et alertes du back-office, envoyés par email (Resend).
@@ -42,6 +42,17 @@ function dailyEmail(r: Report): { subject: string; html: string } {
       ${row('Nouvelles boutiques', String(r.nouvelles_boutiques ?? 0))}
     </table>${reseaux}`);
   return { subject: `Seno · Rapport du ${jour} · ${fcfa(r.volume)}`, html };
+}
+
+/** Relève le solde Jèko (historique 30 jours) : l'alerte « solde bas » est calculée par admin_alert_conditions. */
+async function recordBalance(admin: ReturnType<typeof adminClient>) {
+  const row = await getStoreBalance()
+    .then((montant) => ({ montant, erreur: null }))
+    .catch((e) => ({ montant: null, erreur: String(e?.message ?? e).slice(0, 200) }));
+  const { error } = await admin.from('jeko_soldes').insert(row);
+  if (error) throw error;
+  await admin.from('jeko_soldes').delete().lt('created_at', new Date(Date.now() - 30 * 86_400_000).toISOString());
+  return row.montant;
 }
 
 /** Compare les conditions courantes aux alertes ouvertes : envoie les nouvelles et les résolues. */
@@ -94,6 +105,50 @@ async function runAlerts(admin: ReturnType<typeof adminClient>, to: string[]) {
   return { ouvertes: cur.size, nouvelles: nouvelles.length, resolues: resolues.length };
 }
 
+const REGLES: Record<string, string> = {
+  rafale: 'Envois en rafale',
+  nouveau_plafond: 'Nouveau compte proche des plafonds',
+  appareil_partage: 'Plusieurs comptes sur un appareil',
+  echecs_code: 'Échecs de code d’accès',
+  destinataires: 'Nombreux destinataires',
+  expediteurs: 'Nombreux expéditeurs',
+  liste_noire: 'Numéro sur liste noire',
+};
+
+/** Détection d'activité suspecte : analyse, puis email récapitulatif des détections pas encore signalées. */
+async function runFraud(admin: ReturnType<typeof adminClient>, to: string[]) {
+  const { error } = await admin.rpc('admin_fraud_scan');
+  if (error) throw error;
+  const [{ data: flags, error: e1 }, { data: settings, error: e2 }] = await Promise.all([
+    admin.from('fraud_flags').select('id, user_id, regle, message').eq('notifie', false).order('created_at').limit(200),
+    admin.from('fraud_settings').select('alertes_email').eq('id', 1).single(),
+  ]);
+  if (e1) throw e1;
+  if (e2) throw e2;
+  if (!flags?.length) return { detections: 0 };
+
+  if (settings.alertes_email) {
+    const ids = [...new Set(flags.map((f) => f.user_id))];
+    const { data: profiles } = await admin.from('profiles').select('id, pseudo, phone').in('id', ids);
+    const who = new Map((profiles ?? []).map((p) => [p.id, p.pseudo ? `@${p.pseudo}` : p.phone || p.id.slice(0, 8)]));
+    const base = Deno.env.get('BACKOFFICE_URL')?.replace(/\/+$/, '');
+    await sendEmail(
+      to,
+      `🚨 Seno · ${flags.length === 1 ? REGLES[flags[0].regle] ?? 'Activité suspecte' : `${flags.length} activités suspectes`}`,
+      layout('Activité suspecte détectée', `<ul style="padding-left:18px;font-size:14px;line-height:1.6">
+        ${flags.map((f) => {
+          const name = esc(who.get(f.user_id) ?? f.user_id);
+          const link = base ? `<a href="${esc(`${base}/utilisateurs/${f.user_id}`)}">${name}</a>` : name;
+          return `<li><b>${esc(REGLES[f.regle] ?? f.regle)}</b> · ${link}<br><span style="color:#71717a">${esc(f.message)}</span></li>`;
+        }).join('')}</ul>
+        <p style="font-size:13px;color:#71717a">Ces comptes figurent dans « Comptes à surveiller ».</p>`, '/fraude'),
+    );
+  }
+  const { error: e3 } = await admin.from('fraud_flags').update({ notifie: true }).in('id', flags.map((f) => f.id));
+  if (e3) throw e3;
+  return { detections: flags.length };
+}
+
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
   const secret = req.headers.get('x-cron-secret') ?? '';
@@ -114,8 +169,16 @@ Deno.serve(async (req) => {
     if (!to.length) return json({ ok: true, skipped: 'no_recipients' });
 
     if (mode === 'alerts') {
-      if (!settings.alerts_enabled) return json({ ok: true, skipped: 'disabled' });
-      return json({ ok: true, ...(await runAlerts(admin, to)) });
+      const fraude = await runFraud(admin, to).catch((e) => {
+        console.error('fraud scan', e);
+        return { detections: -1 };
+      });
+      const solde = await recordBalance(admin).catch((e) => {
+        console.error('jeko balance', e);
+        return null;
+      });
+      if (!settings.alerts_enabled) return json({ ok: true, skipped: 'disabled', fraude, solde });
+      return json({ ok: true, ...(await runAlerts(admin, to)), fraude, solde });
     }
 
     const { data: report, error: e } = await admin.rpc('admin_daily_report');
