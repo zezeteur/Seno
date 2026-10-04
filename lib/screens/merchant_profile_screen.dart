@@ -225,8 +225,14 @@ class _MerchantProfileScreenState extends State<MerchantProfileScreen>
   }
 
   Widget _buildActiveSwitch(MerchantInfo m) {
-    final active = _activePending ?? m.isActive;
-    final accent = active ? AppColors.success : AppColors.textSecondary;
+    final suspended = m.adminSuspended;
+    final active = !suspended && (_activePending ?? m.isActive);
+    final accent = suspended
+        ? AppColors.error
+        : active
+            ? AppColors.success
+            : AppColors.textSecondary;
+    final locked = suspended || _activePending != null;
     return Material(
       type: MaterialType.transparency,
       child: ListTile(
@@ -252,7 +258,14 @@ class _MerchantProfileScreenState extends State<MerchantProfileScreen>
               ),
         ),
         subtitle: Text(
-          context.tr(active ? 'merchant_active_on' : 'merchant_active_off'),
+          suspended
+              ? [
+                  context.tr('merchant_suspended'),
+                  if (m.adminSuspendedReason?.isNotEmpty ?? false)
+                    m.adminSuspendedReason!,
+                  context.tr('merchant_suspended_hint'),
+                ].join(' · ')
+              : context.tr(active ? 'merchant_active_on' : 'merchant_active_off'),
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: AppColors.textSecondary,
                 fontSize: 12,
@@ -265,10 +278,10 @@ class _MerchantProfileScreenState extends State<MerchantProfileScreen>
             value: active,
             activeTrackColor: AppColors.secondary,
             materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            onChanged: _activePending != null ? null : _setActive,
+            onChanged: locked ? null : _setActive,
           ),
         ),
-        onTap: _activePending != null ? null : () => _setActive(!active),
+        onTap: locked ? null : () => _setActive(!active),
       ),
     );
   }

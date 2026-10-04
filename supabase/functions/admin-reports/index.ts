@@ -1,0 +1,161 @@
+import { adminClient, json } from '../_shared/jeko.ts';
+
+// Rapport quotidien et alertes du back-office, envoyés par email (Resend).
+// Appelée par pg_cron (`admin-alerts` toutes les 5 min, `admin-daily-report` à 8 h)
+// ou par le back-office (bouton « Envoyer un test »).
+// Déployée sans vérification JWT : authentifiée par `x-cron-secret` (secret `cron_secret` du Vault).
+// Secrets : RESEND_API_KEY, REPORTS_FROM (ex. "Seno <alertes@seno.ci>"), BACKOFFICE_URL (optionnel).
+
+type Mode = 'alerts' | 'daily' | 'test';
+
+const fcfa = (n: number) => `${new Intl.NumberFormat('fr-FR').format(n).replace(/ /g, ' ')} FCFA`;
+const esc = (s: unknown) =>
+  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+
+async function sendEmail(to: string[], subject: string, html: string): Promise<void> {
+  const key = Deno.env.get('RESEND_API_KEY');
+  const from = Deno.env.get('REPORTS_FROM');
+  if (!key || !from) throw new Error('missing_env_RESEND_API_KEY_or_REPORTS_FROM');
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from, to, subject, html }),
+  });
+  if (!res.ok) throw new Error(`resend_${res.status}: ${await res.text()}`);
+}
+
+function layout(title: string, body: string): string {
+  const url = Deno.env.get('BACKOFFICE_URL');
+  return `<!doctype html><html><body style="margin:0;background:#f4f4f5;font-family:Arial,sans-serif;color:#18181b">
+<div style="max-width:600px;margin:0 auto;padding:24px">
+  <div style="background:#FDFE96;border-radius:12px 12px 0 0;padding:16px 24px;font-weight:bold;font-size:20px">Seno</div>
+  <div style="background:#fff;border-radius:0 0 12px 12px;padding:24px">
+    <h1 style="font-size:18px;margin:0 0 16px">${esc(title)}</h1>
+    ${body}
+    ${url ? `<p style="margin-top:24px"><a href="${esc(url)}" style="background:#18181b;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Ouvrir le back-office</a></p>` : ''}
+  </div>
+  <p style="font-size:12px;color:#71717a;text-align:center">Email automatique du back-office Seno.</p>
+</div></body></html>`;
+}
+
+const row = (label: string, value: string, color = '#18181b') =>
+  `<tr><td style="padding:6px 0;color:#71717a">${esc(label)}</td><td style="padding:6px 0;text-align:right;font-weight:bold;color:${color}">${esc(value)}</td></tr>`;
+
+type Report = {
+  jour: string; transferts: number; reussis: number; volume: number; frais: number;
+  paiements_abandonnes: number; rembourses: number; incidents_ouverts: number;
+  inscrits: number; nouvelles_boutiques: number;
+  reseaux: { nom: string; total: number; reussis: number; volume: number }[];
+};
+
+function dailyEmail(r: Report): { subject: string; html: string } {
+  const jour = new Date(`${r.jour}T00:00:00Z`).toLocaleDateString('fr-FR', {
+    weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC',
+  });
+  const taux = r.transferts ? Math.round((r.reussis / r.transferts) * 100) : 0;
+  const reseaux = r.reseaux.length
+    ? `<h2 style="font-size:15px;margin:24px 0 8px">Par réseau</h2>
+       <table style="width:100%;border-collapse:collapse;font-size:14px">
+         <tr style="color:#71717a;text-align:left"><th>Réseau</th><th style="text-align:right">Transferts</th><th style="text-align:right">Réussite</th><th style="text-align:right">Volume</th></tr>
+         ${r.reseaux.map((n) => `<tr style="border-top:1px solid #e4e4e7"><td style="padding:6px 0">${esc(n.nom)}</td><td style="text-align:right">${n.total}</td><td style="text-align:right">${n.total ? Math.round((n.reussis / n.total) * 100) : 0} %</td><td style="text-align:right">${esc(fcfa(n.volume))}</td></tr>`).join('')}
+       </table>`
+    : '';
+  const html = layout(`Rapport du ${jour}`, `
+    <table style="width:100%;border-collapse:collapse;font-size:14px">
+      ${row('Volume réussi', fcfa(r.volume))}
+      ${row('Frais encaissés', fcfa(r.frais))}
+      ${row('Transferts', `${r.transferts} (${taux} % réussis)`)}
+      ${row('Paiements abandonnés', String(r.paiements_abandonnes))}
+      ${row('Remboursements', String(r.rembourses))}
+      ${row('Nouveaux inscrits', String(r.inscrits))}
+      ${row('Incidents à traiter (en cours)', String(r.incidents_ouverts), r.incidents_ouverts ? '#dc2626' : '#16a34a')}
+      ${row('Nouvelles boutiques', String(r.nouvelles_boutiques ?? 0))}
+    </table>${reseaux}`);
+  return { subject: `Seno · Rapport du ${jour} · ${fcfa(r.volume)}`, html };
+}
+
+/** Compare les conditions courantes aux alertes ouvertes : envoie les nouvelles et les résolues. */
+async function runAlerts(admin: ReturnType<typeof adminClient>, to: string[]) {
+  const [{ data: current, error: e1 }, { data: open, error: e2 }] = await Promise.all([
+    admin.rpc('admin_alert_conditions'),
+    admin.from('admin_alerts').select('key, message, opened_at').is('resolved_at', null),
+  ]);
+  if (e1) throw e1;
+  if (e2) throw e2;
+
+  const now = new Date().toISOString();
+  const cur = new Map((current ?? []).map((c: { key: string; message: string }) => [c.key, c.message]));
+  const openKeys = new Set((open ?? []).map((o) => o.key));
+  const nouvelles = [...cur].filter(([k]) => !openKeys.has(k));
+  const resolues = (open ?? []).filter((o) => !cur.has(o.key));
+
+  if (cur.size) {
+    const { error } = await admin.from('admin_alerts').upsert(
+      [...cur].map(([key, message]) => ({
+        key, message, last_seen_at: now,
+        ...(openKeys.has(key) ? {} : { opened_at: now, resolved_at: null }),
+      })),
+    );
+    if (error) throw error;
+  }
+  if (resolues.length) {
+    const { error } = await admin.from('admin_alerts')
+      .update({ resolved_at: now }).in('key', resolues.map((r) => r.key));
+    if (error) throw error;
+  }
+
+  if (nouvelles.length) {
+    await sendEmail(
+      to,
+      `⚠️ Seno · ${nouvelles.length === 1 ? nouvelles[0][1] : `${nouvelles.length} alertes`}`,
+      layout('Nouvelle(s) alerte(s)', `<ul style="padding-left:18px;font-size:14px;line-height:1.6">
+        ${nouvelles.map(([, m]) => `<li style="color:#dc2626">${esc(m)}</li>`).join('')}</ul>
+        ${cur.size > nouvelles.length ? `<p style="font-size:13px;color:#71717a">${cur.size - nouvelles.length} autre(s) alerte(s) toujours en cours.</p>` : ''}`),
+    );
+  }
+  if (resolues.length) {
+    await sendEmail(
+      to,
+      `✅ Seno · ${resolues.length === 1 ? 'Alerte résolue' : `${resolues.length} alertes résolues`}`,
+      layout('Alerte(s) résolue(s)', `<ul style="padding-left:18px;font-size:14px;line-height:1.6">
+        ${resolues.map((r) => `<li style="color:#16a34a">${esc(r.message)}</li>`).join('')}</ul>`),
+    );
+  }
+  return { ouvertes: cur.size, nouvelles: nouvelles.length, resolues: resolues.length };
+}
+
+Deno.serve(async (req) => {
+  if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
+  const secret = req.headers.get('x-cron-secret') ?? '';
+
+  try {
+    const admin = adminClient();
+    const { data: ok, error: authError } = await admin.rpc('check_cron_secret', { p_secret: secret });
+    if (authError) throw authError;
+    if (!secret || !ok) return json({ error: 'unauthorized' }, 401);
+
+    const body = await req.json().catch(() => ({}));
+    const mode: Mode = ['alerts', 'daily', 'test'].includes(body?.mode) ? body.mode : 'alerts';
+
+    const { data: settings, error } = await admin
+      .from('report_settings').select('*').eq('id', 1).single();
+    if (error) throw error;
+    const to = (settings.recipients as string[]).filter((r) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(r));
+    if (!to.length) return json({ ok: true, skipped: 'no_recipients' });
+
+    if (mode === 'alerts') {
+      if (!settings.alerts_enabled) return json({ ok: true, skipped: 'disabled' });
+      return json({ ok: true, ...(await runAlerts(admin, to)) });
+    }
+
+    const { data: report, error: e } = await admin.rpc('admin_daily_report');
+    if (e) throw e;
+    if (mode === 'daily' && !settings.daily_enabled) return json({ ok: true, skipped: 'disabled' });
+    const { subject, html } = dailyEmail(report as Report);
+    await sendEmail(to, mode === 'test' ? `[TEST] ${subject}` : subject, html);
+    return json({ ok: true, sent: to.length });
+  } catch (e) {
+    console.error('admin-reports', e);
+    return json({ error: 'server_error' }, 500);
+  }
+});

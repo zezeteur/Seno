@@ -453,7 +453,8 @@ class SupabaseService {
           final row = await supabase
               .from('merchant_requests')
               .select('business_name, pseudo, category, description, city, '
-                  'address, business_phone, email, logo_url, is_active')
+                  'address, business_phone, email, logo_url, is_active, '
+                  'admin_suspended, admin_suspended_reason')
               .eq('user_id', supabase.auth.currentUser!.id)
               .maybeSingle();
           return row == null ? null : MerchantInfo.fromJson(row);
@@ -1300,6 +1301,10 @@ class MerchantInfo {
   /// Boutique activée par le marchand
   final bool isActive;
 
+  /// Suspendue par Seno : le marchand ne peut pas la réactiver
+  final bool adminSuspended;
+  final String? adminSuspendedReason;
+
   const MerchantInfo({
     required this.businessName,
     required this.pseudo,
@@ -1311,6 +1316,8 @@ class MerchantInfo {
     required this.email,
     required this.logoUrl,
     required this.isActive,
+    this.adminSuspended = false,
+    this.adminSuspendedReason,
   });
 
   factory MerchantInfo.fromJson(Map<String, dynamic> json) => MerchantInfo(
@@ -1325,6 +1332,8 @@ class MerchantInfo {
         logoUrl: json['logo_url'] as String?,
         // Ancienne copie en cache sans la colonne : boutique active
         isActive: json['is_active'] as bool? ?? true,
+        adminSuspended: json['admin_suspended'] as bool? ?? false,
+        adminSuspendedReason: json['admin_suspended_reason'] as String?,
       );
 
   Map<String, dynamic> toJson() => {
@@ -1338,6 +1347,8 @@ class MerchantInfo {
         'email': email,
         'logo_url': logoUrl,
         'is_active': isActive,
+        'admin_suspended': adminSuspended,
+        'admin_suspended_reason': adminSuspendedReason,
       };
 }
 
