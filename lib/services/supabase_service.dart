@@ -1159,6 +1159,36 @@ class SupabaseService {
     if (channel != null) await client?.removeChannel(channel);
   }
 
+  /// Statistiques de [from] (inclus) à [to] (exclu), en cache par période
+  static Future<SenoStatistics> getStatistics({
+    required DateTime from,
+    required DateTime to,
+    required String cacheName,
+  }) {
+    Future<SenoStatistics> fetch() async {
+      final json = await client!.rpc('get_my_statistics', params: {
+        'p_from': from.toUtc().toIso8601String(),
+        'p_to': to.toUtc().toIso8601String(),
+      });
+      return SenoStatistics.fromJson(json as Map<String, dynamic>);
+    }
+
+    return CacheStore.cached<SenoStatistics>(
+      name: cacheName,
+      userId: client?.auth.currentUser?.id,
+      fetch: fetch,
+      encode: (v) => v.json,
+      decode: (j) => SenoStatistics.fromJson(j as Map<String, dynamic>),
+    );
+  }
+
+  /// Dernières statistiques connues pour la période, sans attendre le réseau
+  static SenoStatistics? peekStatistics(String cacheName) => CacheStore.peek(
+        name: cacheName,
+        userId: client?.auth.currentUser?.id,
+        decode: (j) => SenoStatistics.fromJson(j as Map<String, dynamic>),
+      );
+
   /// Historique : envois et réceptions, du plus récent au plus ancien
   /// Page de l'historique, du plus récent au plus ancien.
   /// [before] : curseur (date de la dernière ligne déjà affichée) pour la page
@@ -1501,4 +1531,37 @@ class SenoTransaction {
     'reversement_relance',
     'rembourse_en_cours',
   };
+}
+
+/// Statistiques d'une période (get_my_statistics), transferts réussis seuls
+class SenoStatistics {
+  /// Réponse brute, gardée telle quelle pour le cache
+  final Map<String, dynamic> json;
+
+  const SenoStatistics(this.json);
+
+  factory SenoStatistics.fromJson(Map<String, dynamic> j) => SenoStatistics(j);
+
+  int get income => (json['income'] as num).toInt();
+  int get expenses => (json['expenses'] as num).toInt();
+
+  /// Jour (local) → (revenus, dépenses) ; jours sans mouvement absents
+  Map<DateTime, ({int income, int expenses})> get daily => {
+        for (final d in json['daily'] as List)
+          DateTime.parse(d['day'] as String): (
+            income: (d['income'] as num).toInt(),
+            expenses: (d['expenses'] as num).toInt(),
+          ),
+      };
+
+  /// Dépenses par catégorie, de la plus élevée à la plus faible.
+  /// 'transfer' : envois à des personnes ; sinon id de MerchantCategory.
+  List<({String category, int amount, int count})> get categories => [
+        for (final c in json['categories'] as List)
+          (
+            category: c['category'] as String,
+            amount: (c['amount'] as num).toInt(),
+            count: (c['count'] as num).toInt(),
+          ),
+      ];
 }
