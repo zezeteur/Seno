@@ -191,22 +191,39 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     return Column(
       children: [
-        // Carte de solde jaune : fixe en haut
+        // Carte de solde : fixe en haut, se replie au défilement
         _buildBalanceCard(context),
-        // Bannières d'information (back-office)
-        const AppBanners(),
-        // Dernières transactions + accès à l'historique : seules à défiler
         Expanded(
-          child: CustomScrollView(
-            slivers: [
-              ..._buildTransactionsSlivers(context),
-              // Fin de page : rien n'est caché derrière la navbar
-              SliverToBoxAdapter(child: SizedBox(height: bottomPadding + 40)),
-            ],
+          child: NotificationListener<ScrollUpdateNotification>(
+            onNotification: _onHomeScroll,
+            child: CustomScrollView(
+              slivers: [
+                // Bannières d'information (back-office)
+                const SliverToBoxAdapter(child: AppBanners()),
+                ..._buildTransactionsSlivers(context),
+                // Fin de page : rien n'est caché derrière la navbar
+                SliverToBoxAdapter(child: SizedBox(height: bottomPadding + 40)),
+              ],
+            ),
           ),
         ),
       ],
     );
+  }
+
+  /// Carte repliée : avatar, nom et QR masqués
+  bool _cardCollapsed = false;
+
+  bool _onHomeScroll(ScrollUpdateNotification n) {
+    if (n.depth != 0) return false;
+    final pixels = n.metrics.pixels;
+    // Hystérésis : repli après 120 px, dépli seulement en remontant tout en haut
+    if (!_cardCollapsed && pixels > 120) {
+      setState(() => _cardCollapsed = true);
+    } else if (_cardCollapsed && pixels <= 0 && (n.scrollDelta ?? 0) < 0) {
+      setState(() => _cardCollapsed = false);
+    }
+    return false;
   }
 
   Widget _buildBalanceCard(BuildContext context) {
@@ -233,83 +250,106 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Contenu avec padding
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 24, 24, 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Nom de l'utilisateur avec QR code
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+              // Avatar, nom et QR : se replient en fondu au défilement
+              ClipRect(
+                child: AnimatedAlign(
+                  duration: const Duration(milliseconds: 350),
+                  curve: Curves.easeOutCubic,
+                  alignment: Alignment.topCenter,
+                  heightFactor: _cardCollapsed ? 0 : 1,
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 250),
+                    curve: Curves.easeOut,
+                    opacity: _cardCollapsed ? 0 : 1,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 24, 24, 10),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Nom de l'utilisateur avec QR code
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
-                              _buildAvatar(context),
-                              const SizedBox(height: 12),
-                              // Une seule ligne : prénom long tronqué (« Hello Jean-Christo… »)
-                              Text(
-                                'Hello ${_getUserName()}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .displayLarge
-                                    ?.copyWith(
-                                      color: Colors.black,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 20,
-                                    ),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // Avatar : ouvre l'onglet Compte
+                              GestureDetector(
+                                onTap: () => setState(() => _currentIndex = 3),
+                                child: _buildAvatar(context),
                               ),
-                              if (_pseudo?.isNotEmpty ?? false) ...[
-                                const SizedBox(height: 4),
-                                Text(
-                                  '@$_pseudo',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodyMedium
-                                      ?.copyWith(
-                                        color:
-                                            Colors.black.withValues(alpha: 0.6),
-                                        fontSize: 14,
+                                    const SizedBox(height: 12),
+                                    // Une seule ligne : prénom long tronqué (« Hello Jean-Christo… »)
+                                    Text(
+                                      'Hello ${_getUserName()}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .displayLarge
+                                          ?.copyWith(
+                                            color: Colors.black,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 20,
+                                          ),
+                                    ),
+                                    if (_pseudo?.isNotEmpty ?? false) ...[
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '@$_pseudo',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.copyWith(
+                                              color: Colors.black
+                                                  .withValues(alpha: 0.6),
+                                              fontSize: 14,
+                                            ),
                                       ),
+                                    ],
+                                  ],
                                 ),
-                              ],
+                              ),
+                              GestureDetector(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) =>
+                                          const QRCodeViewerScreen(),
+                                    ),
+                                  );
+                                },
+                                // Marge blanche : les repères du QR ne sont pas rognés
+                                child: Container(
+                                  width: 120,
+                                  height: 120,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(24),
+                                  ),
+                                  padding: const EdgeInsets.all(10),
+                                  child: const DynamicQrCode(size: 100),
+                                ),
+                              ),
                             ],
                           ),
-                        ),
-                        GestureDetector(
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) =>
-                                    const QRCodeViewerScreen(),
-                              ),
-                            );
-                          },
-                          // Marge blanche : les repères du QR ne sont pas rognés
-                          child: Container(
-                            width: 120,
-                            height: 120,
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(24),
-                            ),
-                            padding: const EdgeInsets.all(10),
-                            child: const DynamicQrCode(size: 100),
-                          ),
-                        ),
-                      ],
+                          const SizedBox(height: 14),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 14),
-                  ],
+                  ),
                 ),
+              ),
+              // Carte repliée : marge haute pour les boutons
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 350),
+                curve: Curves.easeOutCubic,
+                height: _cardCollapsed ? 20 : 0,
               ),
 
               // Contacts pour envoyer de l'argent - sans padding latéral pour aller jusqu'aux bords

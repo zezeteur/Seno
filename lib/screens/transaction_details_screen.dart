@@ -603,8 +603,40 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        // Paiement reçu : pas de renvoi, seulement le reçu
+                        if (_tx.isReceived)
+                          ElevatedButton.icon(
+                            onPressed: _sharing ? null : _shareReceipt,
+                            style: ElevatedButton.styleFrom(
+                              overlayColor: Colors.transparent,
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.black,
+                              disabledBackgroundColor: AppColors.primary,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(vertical: 20),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(50)),
+                            ),
+                            icon: _sharing
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2, color: Colors.black),
+                                  )
+                                : const HugeIcon(
+                                    icon: HugeIcons.strokeRoundedShare08,
+                                    size: 20,
+                                    color: Colors.black,
+                                  ),
+                            label: Text(
+                              context.tr('tx_share_receipt'),
+                              style: const TextStyle(
+                                  fontSize: 16, fontWeight: FontWeight.w600),
+                            ),
+                          )
                         // Renvoyer à la même personne ; reçu partageable si réussi
-                        if (!_isPending)
+                        else if (!_isPending)
                           Row(
                             children: [
                               Expanded(

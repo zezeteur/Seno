@@ -219,86 +219,110 @@ class _PaymentRequestDetailsScreenState
                       const SizedBox(width: 24),
                     ],
                   ),
+                  // Infos centrées verticalement (défilent si l'écran est petit)
                   Expanded(
-                    child: ListView(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      children: [
-                        const SizedBox(height: 24),
-                        // Autre partie : centrée, photo au-dessus
-                        Center(
-                          child: UserAvatar(
-                            pseudo: _r.pseudo,
-                            avatarUrl: _r.avatarUrl,
-                            radius: 40,
-                            backgroundColor: AppColors.secondary,
-                            foregroundColor: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          context.tr(
-                              _r.received
-                                  ? 'payment_request_asks'
-                                  : 'payment_request_to',
-                              {'pseudo': '@${_r.pseudo}'}),
-                          textAlign: TextAlign.center,
-                          style:
-                              textTheme.bodyMedium?.copyWith(color: _inkSoft),
-                        ),
-                        const SizedBox(height: 8),
-                        FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text.rich(
-                            TextSpan(
-                              children: [
-                                TextSpan(text: formatPaymentAmount(_r.amount)),
+                    child: Center(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // Autre partie : centrée, photo au-dessus
+                            Center(
+                              child: UserAvatar(
+                                pseudo: _r.pseudo,
+                                avatarUrl: _r.avatarUrl,
+                                radius: 40,
+                                backgroundColor: AppColors.secondary,
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              context.tr(
+                                  _r.received
+                                      ? 'payment_request_asks'
+                                      : 'payment_request_to',
+                                  {'pseudo': '@${_r.pseudo}'}),
+                              textAlign: TextAlign.center,
+                              style: textTheme.bodyMedium
+                                  ?.copyWith(color: _inkSoft),
+                            ),
+                            const SizedBox(height: 8),
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text.rich(
                                 TextSpan(
-                                  text: ' FCFA',
-                                  style: textTheme.titleLarge
-                                      ?.copyWith(color: _inkSoft),
+                                  children: [
+                                    TextSpan(
+                                        text: formatPaymentAmount(_r.amount)),
+                                    TextSpan(
+                                      text: ' FCFA',
+                                      style: textTheme.titleLarge
+                                          ?.copyWith(color: _inkSoft),
+                                    ),
+                                  ],
                                 ),
-                              ],
+                                style: textTheme.displaySmall
+                                    ?.copyWith(fontWeight: FontWeight.bold),
+                              ),
                             ),
-                            style: textTheme.displaySmall
-                                ?.copyWith(fontWeight: FontWeight.bold),
-                          ),
+                            const SizedBox(height: 12),
+                            Center(
+                                child: PaymentRequestStatusPill(
+                                    statut: expired ? 'expiree' : _r.statut)),
+                            const SizedBox(height: 32),
+                            // En attente : compte à rebours avant expiration
+                            if (pending)
+                              Container(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 20),
+                                decoration: BoxDecoration(
+                                  color: _ink.withValues(alpha: 0.06),
+                                  borderRadius: BorderRadius.circular(24),
+                                ),
+                                // Compte à rebours centré, en grand
+                                child: Column(
+                                  children: [
+                                    Text(
+                                        context
+                                            .tr('payment_request_expires_in'),
+                                        style: textTheme.bodyMedium
+                                            ?.copyWith(color: _inkSoft)),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _remaining,
+                                      style: textTheme.displaySmall?.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                        // Chiffres à largeur fixe : pas de saut à chaque seconde
+                                        fontFeatures: const [
+                                          FontFeature.tabularFigures()
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
                         ),
-                        const SizedBox(height: 12),
-                        Center(
-                            child: PaymentRequestStatusPill(
-                                statut: expired ? 'expiree' : _r.statut)),
-                        const SizedBox(height: 32),
-                        // En attente : compte à rebours avant expiration
-                        if (pending)
-                          Container(
-                            padding: const EdgeInsets.symmetric(vertical: 20),
-                            decoration: BoxDecoration(
-                              color: _ink.withValues(alpha: 0.06),
-                              borderRadius: BorderRadius.circular(24),
-                            ),
-                            // Compte à rebours centré, en grand
-                            child: Column(
-                              children: [
-                                Text(context.tr('payment_request_expires_in'),
-                                    style: textTheme.bodyMedium
-                                        ?.copyWith(color: _inkSoft)),
-                                const SizedBox(height: 4),
-                                Text(
-                                  _remaining,
-                                  style: textTheme.displaySmall?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    // Chiffres à largeur fixe : pas de saut à chaque seconde
-                                    fontFeatures: const [
-                                      FontFeature.tabularFigures()
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                      ],
+                      ),
                     ),
                   ),
+                  // Terminée : OK seul (ferme le détail)
+                  if (!pending)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+                      child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _ink,
+                          foregroundColor: AppColors.primary,
+                          minimumSize: const Size.fromHeight(56),
+                          shape: const StadiumBorder(),
+                        ),
+                        onPressed: () => Navigator.pop(context),
+                        child: Text(context.tr('payment_request_ok')),
+                      ),
+                    ),
                   // Actions (demande en attente uniquement)
                   if (pending)
                     Padding(

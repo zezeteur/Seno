@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hugeicons/hugeicons.dart';
 import '../l10n/app_strings.dart';
+import '../screens/payment_request_details_screen.dart';
 import '../screens/transaction_details_screen.dart';
 import '../services/recents_store.dart';
 import '../services/supabase_service.dart';
@@ -229,17 +230,31 @@ class TransactionTile extends StatelessWidget {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       // Demande : pas de page de détail (aucun transfert)
-      onTap: tx.isRequest
-          ? null
-          : () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => TransactionDetailsScreen(
-                    transaction: tx,
-                    contactName: name,
+      // Demande de paiement : son détail (jaune, compte à rebours…)
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => tx.isRequest
+              ? PaymentRequestDetailsScreen(
+                  request: PaymentRequest(
+                    id: tx.id,
+                    received: tx.isReceived,
+                    pseudo: tx.label,
+                    avatarUrl: tx.avatarUrl,
+                    amount: tx.montant,
+                    // Historique : demande terminée ou de plus de 24 h,
+                    // plus payable depuis ici
+                    compteDestination: null,
+                    statut: tx.statut.substring('demande_'.length),
+                    createdAt: tx.createdAt,
                   ),
+                )
+              : TransactionDetailsScreen(
+                  transaction: tx,
+                  contactName: name,
                 ),
-              ),
+        ),
+      ),
       child: Row(
         children: [
           Stack(
