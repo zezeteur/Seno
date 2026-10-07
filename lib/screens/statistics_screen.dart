@@ -523,12 +523,6 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                               color: Colors.red,
                               icon: HugeIcons.strokeRoundedArrowUp01,
                             ),
-                            _buildStatCard(
-                              title: context.tr('balance'),
-                              amount: _fmt(stats.income - stats.expenses),
-                              color: AppColors.secondary,
-                              icon: HugeIcons.strokeRoundedWallet01,
-                            ),
                           ],
                         ),
                       ),
