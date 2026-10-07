@@ -109,6 +109,36 @@ class RecentsStore {
     return null;
   }
 
+  /// Récents sans doublon : une même personne enregistrée par son pseudo et
+  /// par son numéro (ou par deux numéros du même contact) n'apparaît qu'une
+  /// fois, à sa position la plus récente
+  static List<RecentRecipient> distinct(
+    List<RecentRecipient> recents,
+    List<PhoneContact> contacts,
+    Map<String, ({String pseudo, String? avatarUrl})> senoAccounts,
+  ) {
+    String identity(RecentRecipient r) {
+      if (contactName(r, contacts, senoAccounts) case final name?) {
+        return 'contact:${name.toLowerCase()}';
+      }
+      final phone = r.phone ??
+          (_phonePattern.hasMatch(r.value)
+              ? r.value.replaceAll(' ', '')
+              : null);
+      // Numéro d'un compte Seno : même identité que son pseudo
+      final pseudo = phone != null ? senoAccounts[phone]?.pseudo : null;
+      return pseudo != null
+          ? pseudo.toLowerCase()
+          : r.value.toLowerCase().replaceAll(' ', '');
+    }
+
+    final seen = <String>{};
+    return [
+      for (final r in recents)
+        if (seen.add(identity(r))) r,
+    ];
+  }
+
   /// Répertoire (dernière copie, puis version rafraîchie)
   static final phoneContacts = ValueNotifier<List<PhoneContact>>([]);
 

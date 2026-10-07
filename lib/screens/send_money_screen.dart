@@ -18,6 +18,7 @@ import '../widgets/photo_viewer.dart';
 import '../widgets/pin_pad.dart';
 import '../widgets/slide_button.dart';
 import '../widgets/user_avatar.dart';
+import 'payment_request_details_screen.dart';
 import 'qr_code_viewer_screen.dart';
 
 enum _Step { recipient, amount }
@@ -33,11 +34,19 @@ class SendMoneyScreen extends StatefulWidget {
   /// Destinataire boutique : son nom
   final String? initialShopName;
 
+  /// Ouvert depuis « Encaisser » : demande de paiement à un compte Seno
+  final bool collect;
+
+  /// Paiement d'une demande reçue : destinataire, montant et compte imposés
+  final PaymentRequest? paymentRequest;
+
   const SendMoneyScreen(
       {super.key,
       this.initialRecipient,
       this.initialCategory,
-      this.initialShopName});
+      this.initialShopName,
+      this.collect = false,
+      this.paymentRequest});
 
   @override
   State<SendMoneyScreen> createState() => _SendMoneyScreenState();
@@ -272,7 +281,9 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
   /// Destinataire marchand (boutique active) : il paie toujours les frais
   bool _recipientIsMerchant = false;
 
-  bool get _effectiveSenderPaysFees => !_recipientIsMerchant && _senderPaysFees;
+  bool get _effectiveSenderPaysFees =>
+      widget.paymentRequest != null ||
+      (!_recipientIsMerchant && _senderPaysFees);
 
   @override
   void initState() {
@@ -291,6 +302,18 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
     RecentsStore.recents.addListener(_onContactsChanged);
     RecentsStore.refresh(askPermission: true);
     RecentsStore.load();
+    final request = widget.paymentRequest;
+    if (request != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _selectRecipient(request.pseudo,
+            avatarUrl: request.avatarUrl, saveRecent: false);
+        setState(() {
+          _amount = request.amount.toString();
+          _toCompteChoiceId = request.compteDestination;
+        });
+      });
+    }
     final initial = widget.initialRecipient;
     if (initial != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -383,7 +406,10 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
   }
 
   /// Restant le plus contraignant (jour ou mois), null si inconnu
-  int? get _remaining => switch ((_remainingDaily, _remainingMonthly)) {
+  /// Encaisser : les plafonds d'envoi de l'utilisateur ne s'appliquent pas
+  int? get _remaining => widget.collect ? null : _remainingOrNull;
+
+  int? get _remainingOrNull => switch ((_remainingDaily, _remainingMonthly)) {
         (final d?, final m?) => d < m ? d : m,
         (final d?, null) => d,
         (null, final m?) => m,
@@ -456,7 +482,10 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
               child: Text(
-                context.tr('send_choose_account'),
+                // Encaisser : compte crédité, pas débité
+                context.tr(widget.collect
+                    ? 'collect_choose_account'
+                    : 'send_choose_account'),
                 style: textTheme.titleMedium
                     ?.copyWith(fontWeight: FontWeight.w600),
               ),
@@ -611,6 +640,13 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
 
   Future<void> _onPhoneContactTap(
       ({String name, List<String> numbers}) contact) async {
+    // Encaisser : on choisit le compte Seno, jamais un numéro
+    if (widget.collect) {
+      if (_senoAccountOf(contact.numbers) case final account?) {
+        _selectRecipient(account.pseudo, avatarUrl: account.avatarUrl);
+      }
+      return;
+    }
     if (contact.numbers.length == 1) {
       _selectNumber(contact.numbers.first);
       return;
@@ -682,9 +718,18 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
   bool get _headerCollapsed =>
       _step == _Step.recipient && _recipientController.text.isNotEmpty;
 
+  /// Pseudos Seno des contacts du répertoire
+  Set<String> get _contactSenoPseudos =>
+      {for (final a in _senoAccounts.values) a.pseudo};
+
   bool get _recipientValid {
     final text = _recipientController.text.trim();
     if (text.isEmpty) return false;
+    // Encaisser : pseudo d'un compte Seno du répertoire uniquement
+    if (widget.collect) {
+      return _contactSenoPseudos.any(
+          (p) => p.toLowerCase() == text.replaceAll('@', '').toLowerCase());
+    }
     if (!_phonePattern.hasMatch(text)) return text.length >= 3;
     final digits = text.replaceAll(' ', '');
     return digits.length == 10 && _validPhonePrefix.hasMatch(digits);
@@ -768,6 +813,57 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
     });
   }
 
+  /// Encaisser : envoie la demande de paiement (crédit sur le compte choisi)
+  Future<void> _submitCollect() async {
+    final compte = _compte;
+    if (_sending || compte == null) return;
+    _sending = true;
+    HapticFeedback.mediumImpact();
+    setState(() => _loading = true);
+    try {
+      final id = await SupabaseService.createPaymentRequest(
+        payerPseudo: _recipient,
+        compteId: compte.id,
+        amount: _amountValue,
+      );
+      SupabaseService.paymentRequestsRevision.value++;
+      if (!mounted) return;
+      ToastService.showSuccess(
+          context, context.tr('collect_sent', {'pseudo': '@$_recipient'}));
+      // Détail de la demande posé directement sur l'accueil : son retour y
+      // ramène (comme la page de suivi d'un envoi)
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (_) => PaymentRequestDetailsScreen(
+            request: PaymentRequest(
+              id: id,
+              received: false,
+              pseudo: _recipient,
+              avatarUrl: _recipientAvatarUrl,
+              amount: _amountValue,
+              compteDestination: null,
+              statut: 'en_attente',
+              createdAt: DateTime.now(),
+            ),
+          ),
+        ),
+        (route) => route.isFirst,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ToastService.showError(
+          context,
+          context.tr(e is AuthOtpException && e.code == 'too_many_requests'
+              ? 'collect_too_many'
+              : e is AuthOtpException && e.code == 'invalid_recipient'
+                  ? 'collect_invalid_recipient'
+                  : 'collect_failed'));
+    } finally {
+      _sending = false;
+    }
+  }
+
   /// Sheet de confirmation : se valide automatiquement après 15 s
   Future<void> _submit() async {
     if (_sending) return;
@@ -786,7 +882,9 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
       showDragHandle: true,
       builder: (_) => _SendConfirmSheet(
         recipient: _isSelf ? context.tr('send_myself') : _recipient,
-        recipientDetail: _recipientNumeroLabel,
+        // Demande reçue : numéro du demandeur non affiché
+        recipientDetail:
+            widget.paymentRequest == null ? _recipientNumeroLabel : null,
         received: '${_formatAmount(_received.toString())} FCFA',
         fees: '${_formatAmount(_fee.toString())} FCFA',
         total: '${_formatAmount(_total.toString())} FCFA',
@@ -837,6 +935,7 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
         toCompteId: toCompte?.id,
         toNumero: isPhone ? _recipientPhone : null,
         toReseauId: isPhone ? toReseau!.id : null,
+        paymentRequestId: widget.paymentRequest?.id,
       );
     } catch (e) {
       // Échec définitif côté serveur : la clé est consommée, la prochaine
@@ -848,7 +947,8 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
       }
       if (mounted) {
         setState(() => _loading = false);
-        ToastService.showError(context,
+        ToastService.showError(
+            context,
             context.tr(limitExceeded
                 ? 'send_limit_exceeded'
                 : blocked
@@ -884,7 +984,8 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
 
   /// Ouvert sur un destinataire (scan, récent, renvoi) : le retour depuis
   /// le montant ferme l'écran au lieu de revenir à la recherche
-  bool get _backClosesFromAmount => widget.initialRecipient != null;
+  bool get _backClosesFromAmount =>
+      widget.initialRecipient != null || widget.paymentRequest != null;
 
   void _onBack() {
     if (_loading) return;
@@ -921,8 +1022,7 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
     final viewPadding = MediaQuery.of(context).viewPadding;
 
     return PopScope(
-      canPop: !_loading &&
-          (_step == _Step.recipient || _backClosesFromAmount),
+      canPop: !_loading && (_step == _Step.recipient || _backClosesFromAmount),
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _onBack();
       },
@@ -955,6 +1055,25 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
                 onPressed: _onBack,
               ),
             ),
+            // Montant : « Demander à » / « Envoyer à » à côté du bouton retour
+            if (_step == _Step.amount)
+              Positioned(
+                top: viewPadding.top + 8,
+                left: 56,
+                right: 24,
+                height: 48,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    context
+                        .tr(widget.collect ? 'collect_from' : 'send_to_title'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.titleLarge
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -967,7 +1086,12 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
       borderRadius: BorderRadius.circular(50),
       borderSide: BorderSide.none,
     );
-    final phoneContacts = _filteredPhoneContacts;
+    // Encaisser : seulement les contacts ayant un compte Seno
+    final phoneContacts = widget.collect
+        ? _filteredPhoneContacts
+            .where((c) => _senoAccountOf(c.numbers) != null)
+            .toList()
+        : _filteredPhoneContacts;
     // Récents du répertoire (numéro ou pseudo) : affichés dans « Contacts »
     final contactNumbers = {for (final c in phoneContacts) ...c.numbers};
     final contactPseudos = {
@@ -975,6 +1099,8 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
         if (_senoAccountOf(c.numbers) case final account?) account.pseudo,
     };
     final contacts = _filteredRecents
+        // Encaisser : seulement les comptes Seno du répertoire
+        .where((r) => !widget.collect || _contactSenoPseudos.contains(r.value))
         .where((r) =>
             !(r.phone != null && contactNumbers.contains(r.phone)) &&
             !(_phonePattern.hasMatch(r.value)
@@ -988,12 +1114,18 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
       for (final c in phoneContacts)
         if (_senoAccountOf(c.numbers) case final account?) account.pseudo,
     };
-    final pseudoResults =
-        _pseudoResults.where((u) => !shownPseudos.contains(u.pseudo)).toList();
+    // Encaisser : pas de recherche hors répertoire (ni boutiques)
+    final pseudoResults = widget.collect
+        ? const <Never>[]
+        : _pseudoResults
+            .where((u) => !shownPseudos.contains(u.pseudo))
+            .toList();
     final searching = _recipientController.text.trim().isNotEmpty;
     // Plusieurs comptes : envoi vers un autre de ses propres comptes
-    final showSelf =
-        !searching && _comptes.length > 1 && (_myPseudo?.isNotEmpty ?? false);
+    final showSelf = !widget.collect &&
+        !searching &&
+        _comptes.length > 1 &&
+        (_myPseudo?.isNotEmpty ?? false);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1013,7 +1145,8 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
                 .copyWith(fontWeight: FontWeight.bold),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            child: Text(context.tr('send_money')),
+            child: Text(
+                context.tr(widget.collect ? 'collect_title' : 'send_money')),
           ),
         ),
         // Sous-titre : se replie en fondu
@@ -1029,7 +1162,9 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
               child: Padding(
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(
-                  context.tr('send_recipient_subtitle'),
+                  context.tr(widget.collect
+                      ? 'collect_recipient_subtitle'
+                      : 'send_recipient_subtitle'),
                   style: textTheme.bodyLarge
                       ?.copyWith(color: AppColors.textSecondary),
                 ),
@@ -1072,19 +1207,23 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
               ),
             ),
             // Scanner : ouvre l'écran QR sur l'onglet « Envoyer » (caméra)
-            suffixIcon: IconButton(
-              icon: HugeIcon(
-                icon: HugeIcons.strokeRoundedQrCode01,
-                size: 20,
-                color: onSurface.withValues(alpha: 0.7),
-              ),
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const QRCodeViewerScreen(scanOnly: true),
-                ),
-              ),
-            ),
+            // Masqué en mode Encaisser
+            suffixIcon: widget.collect
+                ? null
+                : IconButton(
+                    icon: HugeIcon(
+                      icon: HugeIcons.strokeRoundedQrCode01,
+                      size: 20,
+                      color: onSurface.withValues(alpha: 0.7),
+                    ),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            const QRCodeViewerScreen(scanOnly: true),
+                      ),
+                    ),
+                  ),
             // Pilule : tous les états (le thème peut surcharger enabled/focused)
             border: pill,
             enabledBorder: pill,
@@ -1157,7 +1296,7 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
                     subtitle: switch ((name, isPhone)) {
                       (_?, true) => Text(c.value),
                       (_?, false) => Text('@${c.value}'),
-                      (null, false) when c.phone != null =>
+                      (null, false) when c.phone != null && !widget.collect =>
                         Text(PairDigitsFormatter.group(c.phone!)),
                       _ => null,
                     },
@@ -1259,10 +1398,13 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
                       subtitle: Text(
                         [
                           if (seno != null) c.name,
-                          PairDigitsFormatter.group(c.numbers.first),
-                          if (c.numbers.length > 1)
-                            context.tr('send_more_numbers',
-                                {'count': '${c.numbers.length - 1}'}),
+                          // Encaisser : pas de numéros affichés
+                          if (!widget.collect) ...[
+                            PairDigitsFormatter.group(c.numbers.first),
+                            if (c.numbers.length > 1)
+                              context.tr('send_more_numbers',
+                                  {'count': '${c.numbers.length - 1}'}),
+                          ],
                         ].join('  ·  '),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -1321,13 +1463,23 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
     );
   }
 
+  /// Ligne du destinataire : les infos prennent la place restante, sauf en
+  /// Encaisser (colonne centrée, pas de contrainte de hauteur)
+  Widget _expandedUnlessCollect(Widget child) =>
+      _centeredRecipient ? child : Expanded(child: child);
+
+  /// Encaisser ou demande reçue : infos de l'autre partie centrées
+  bool get _centeredRecipient =>
+      widget.collect || widget.paymentRequest != null;
+
   Widget _buildAmountStep(TextTheme textTheme) {
     final isPhone = _phonePattern.hasMatch(_recipient);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Destinataire
-        Row(
+        // Destinataire (Encaisser / demande reçue : centré, photo au-dessus)
+        Flex(
+          direction: _centeredRecipient ? Axis.vertical : Axis.horizontal,
           children: [
             // Photo : agrandie en plein écran au toucher
             GestureDetector(
@@ -1338,22 +1490,22 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
                   pseudo: isPhone ? null : _recipient,
                   avatarUrl: _recipientAvatarUrl,
                   merchantCategory: _recipientCategory,
-                  radius: 22,
+                  radius: _centeredRecipient ? 32 : 22,
                   backgroundColor: AppColors.secondary,
                   foregroundColor: Colors.white,
                 ),
               ),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            SizedBox(
+                width: _centeredRecipient ? 0 : 12,
+                height: _centeredRecipient ? 8 : 0),
+            _expandedUnlessCollect(
+              Column(
+                crossAxisAlignment: _centeredRecipient
+                    ? CrossAxisAlignment.center
+                    : CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    context.tr('qr_pay_to'),
-                    style: textTheme.bodySmall
-                        ?.copyWith(color: AppColors.textSecondary),
-                  ),
+                  // « Envoyer à » / « Demander à » : dans l'en-tête
                   // Contact du répertoire : son nom au-dessus du pseudo/numéro
                   if (_recipientContactName != null)
                     Text(
@@ -1379,7 +1531,12 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
                             ?.copyWith(fontWeight: FontWeight.w600),
                   ),
                   // Pseudo : numéro du compte choisi (masqué), sinon numéro connu
-                  if (!isPhone && _recipientNumeroLabel != null)
+                  // (Encaisser : jamais de numéro)
+                  // (demande reçue : ni numéro ni réseau du demandeur)
+                  if (!isPhone &&
+                      !widget.collect &&
+                      widget.paymentRequest == null &&
+                      _recipientNumeroLabel != null)
                     Text(
                       _recipientNumeroLabel!,
                       maxLines: 1,
@@ -1391,12 +1548,18 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
               ),
             ),
             // Réseau de réception : logo + flèche, choix parmi les réseaux actifs
-            if (_chipReseau != null) ...[
+            // Encaisser / demande reçue : pas de réseau du destinataire
+            if (_chipReseau != null &&
+                !widget.collect &&
+                widget.paymentRequest == null) ...[
               const SizedBox(width: 12),
               GestureDetector(
-                onTap: _recipientComptes.isNotEmpty
-                    ? (_toCompteOptions.length > 1 ? _chooseToCompte : null)
-                    : (_toReseaux.length > 1 ? _chooseToReseau : null),
+                // Demande reçue : compte crédité imposé par le demandeur
+                onTap: widget.paymentRequest != null
+                    ? null
+                    : _recipientComptes.isNotEmpty
+                        ? (_toCompteOptions.length > 1 ? _chooseToCompte : null)
+                        : (_toReseaux.length > 1 ? _chooseToReseau : null),
                 child: Container(
                   padding: const EdgeInsets.fromLTRB(4, 4, 10, 4),
                   decoration: BoxDecoration(
@@ -1463,7 +1626,8 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
                   children: [
                     Flexible(
                       child: Text(
-                        context.tr('send_from', {
+                        context
+                            .tr(widget.collect ? 'collect_to' : 'send_from', {
                           'account': [
                             if (_reseau != null) _reseau!.nom,
                             PairDigitsFormatter.group(_compte!.numero),
@@ -1489,10 +1653,12 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
             ),
           ),
         const Spacer(),
-        if (_feePercent != null) ...[
+        // Encaisser : les frais sont à la charge du payeur, rien à afficher
+        if (_feePercent != null && !widget.collect) ...[
           // Boutique : le client paie le montant saisi, rien à afficher
           if (!_recipientIsMerchant) ...[
-            _buildFeesToggle(textTheme),
+            // Demande reçue : frais à la charge du payeur, non modifiable
+            if (widget.paymentRequest == null) _buildFeesToggle(textTheme),
             const SizedBox(height: 8),
             _buildSummaryRow(textTheme, context.tr('send_receives'), _received),
             const SizedBox(height: 4),
@@ -1501,17 +1667,22 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
           ],
           const SizedBox(height: 24),
         ],
-        IgnorePointer(
-          ignoring: _loading,
-          child: PinKeypad(onDigit: _onDigit, onDelete: _onDelete),
-        ),
-        const SizedBox(height: 24),
+        // Demande reçue : montant imposé, pas de clavier
+        if (widget.paymentRequest == null) ...[
+          IgnorePointer(
+            ignoring: _loading,
+            child: PinKeypad(onDigit: _onDigit, onDelete: _onDelete),
+          ),
+          const SizedBox(height: 24),
+        ],
         SlideButton(
-          label: context.tr('send_slide'),
+          label: context.tr(widget.collect ? 'collect_slide' : 'send_slide'),
           loading: _loading,
-          onConfirmed: !_amountValid || _feePercent == null || _received <= 0
-              ? null
-              : _submit,
+          onConfirmed: widget.collect
+              ? (_amountValid && _compte != null ? _submitCollect : null)
+              : !_amountValid || _feePercent == null || _received <= 0
+                  ? null
+                  : _submit,
         ),
       ],
     );

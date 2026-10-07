@@ -26,6 +26,7 @@ Deno.serve(async (req) => {
     if (body.action === 'create') {
       const {
         compte_id, amount, sender_pays_fees, to_compte_id, to_numero, to_reseau_id, label, idempotency_key,
+        payment_request_id,
       } = body;
       if (
         typeof idempotency_key !== 'string' || !UUID_RE.test(idempotency_key) ||
@@ -45,6 +46,26 @@ Deno.serve(async (req) => {
           : json({ id: t.id, redirect_url: t.jeko_redirect_url ?? '' });
       const { data: existing } = await findExisting();
       if (existing) return replay(existing);
+
+      // Paiement d'une demande (« Encaisser ») : montant et compte crédité imposés
+      if (payment_request_id !== undefined) {
+        if (typeof payment_request_id !== 'string' || !UUID_RE.test(payment_request_id)) {
+          return json({ error: 'invalid_request' }, 400);
+        }
+        const { data: pr } = await admin
+          .from('payment_requests').select('payeur, compte_destination, montant')
+          .eq('id', payment_request_id).maybeSingle();
+        const { data: prStatut, error: prError } = await admin.rpc('payment_request_statut', {
+          p_id: payment_request_id,
+        });
+        if (prError) throw prError;
+        if (
+          !pr || pr.payeur !== userId || prStatut !== 'en_attente' ||
+          to_compte_id !== pr.compte_destination || amount !== pr.montant || sender_pays_fees === false
+        ) {
+          return json({ error: 'invalid_payment_request' }, 400);
+        }
+      }
 
       const { data: source } = await admin
         .from('comptes').select('id, numero, reseaux:id_reseau(abreviation, statut)')
@@ -135,6 +156,12 @@ Deno.serve(async (req) => {
       }
       if (created.error) return json({ error: created.error, limit: created.limit }, 400);
       const row = { id: created.id as string };
+      if (payment_request_id !== undefined) {
+        const { error: linkError } = await admin
+          .from('payment_requests').update({ transfert_id: row.id, updated_at: new Date().toISOString() })
+          .eq('id', payment_request_id);
+        if (linkError) console.error('payment request link', linkError);
+      }
 
       try {
         const payment = await createPaymentRequest({

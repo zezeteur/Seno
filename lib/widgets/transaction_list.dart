@@ -206,7 +206,12 @@ class TransactionTile extends StatelessWidget {
     final name = isSelf(tx) ? context.tr('send_myself') : contactName(tx);
     final onSurface = Theme.of(context).colorScheme.onSurface;
     final String subtitle;
-    if (tx.isRefunded) {
+    if (tx.isRequest) {
+      // Ex. « Demande reçue · Payée »
+      subtitle =
+          '${context.tr(tx.isReceived ? 'tx_request_received' : 'tx_request_sent')}'
+          ' · ${context.tr('payment_request_status_${tx.statut.substring('demande_'.length)}')}';
+    } else if (tx.isRefunded) {
       subtitle = context.tr('tx_refunded');
     } else if (tx.isFailed) {
       subtitle = context.tr('tx_failed');
@@ -215,21 +220,26 @@ class TransactionTile extends StatelessWidget {
     } else {
       subtitle = context.tr(tx.isReceived ? 'tx_received_from' : 'tx_sent_to');
     }
-    final amount =
-        '${tx.isReceived ? '+' : '-'} ${formatAmount(tx.montant)} FCFA';
+    // Demande : pas d'argent échangé, pas de signe
+    final amount = tx.isRequest
+        ? '${formatAmount(tx.montant)} FCFA'
+        : '${tx.isReceived ? '+' : '-'} ${formatAmount(tx.montant)} FCFA';
     String two(int n) => n.toString().padLeft(2, '0');
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => TransactionDetailsScreen(
-            transaction: tx,
-            contactName: name,
-          ),
-        ),
-      ),
+      // Demande : pas de page de détail (aucun transfert)
+      onTap: tx.isRequest
+          ? null
+          : () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => TransactionDetailsScreen(
+                    transaction: tx,
+                    contactName: name,
+                  ),
+                ),
+              ),
       child: Row(
         children: [
           Stack(
@@ -250,7 +260,11 @@ class TransactionTile extends StatelessWidget {
                 child: Container(
                   padding: const EdgeInsets.all(3),
                   decoration: BoxDecoration(
-                    color: tx.isReceived ? AppColors.success : Colors.black,
+                    color: tx.isRequest
+                        ? AppColors.secondary
+                        : tx.isReceived
+                            ? AppColors.success
+                            : Colors.black,
                     shape: BoxShape.circle,
                     border: Border.all(
                       color: Theme.of(context).scaffoldBackgroundColor,
@@ -258,9 +272,11 @@ class TransactionTile extends StatelessWidget {
                     ),
                   ),
                   child: HugeIcon(
-                    icon: tx.isReceived
-                        ? HugeIcons.strokeRoundedArrowDownLeft01
-                        : HugeIcons.strokeRoundedArrowUpRight01,
+                    icon: tx.isRequest
+                        ? HugeIcons.strokeRoundedInvoice01
+                        : tx.isReceived
+                            ? HugeIcons.strokeRoundedArrowDownLeft01
+                            : HugeIcons.strokeRoundedArrowUpRight01,
                     size: 10,
                     color: Colors.white,
                   ),
@@ -299,7 +315,7 @@ class TransactionTile extends StatelessWidget {
           Text(
             amount,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: tx.isFailed || tx.isRefunded
+                  color: tx.isFailed || tx.isRefunded || tx.isRequest
                       ? onSurface.withValues(alpha: 0.35)
                       : tx.isReceived
                           ? AppColors.success

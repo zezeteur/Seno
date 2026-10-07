@@ -13,6 +13,7 @@ import '../widgets/transaction_list.dart';
 import '../widgets/user_avatar.dart';
 import 'qr_code_viewer_screen.dart';
 import 'send_money_screen.dart';
+import '../widgets/payment_requests_section.dart';
 import 'wallet_screen.dart';
 import 'statistics_screen.dart';
 import 'history_screen.dart';
@@ -318,15 +319,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   RecentsStore.recents,
                   RecentsStore.phoneContacts,
                   RecentsStore.senoAccounts,
+                  PaymentRequestsSection.visible,
                 ]),
                 builder: (context, _) {
-                  final recents = RecentsStore.recents.value;
                   final contacts = RecentsStore.phoneContacts.value;
                   final seno = RecentsStore.senoAccounts.value;
+                  // Même personne (pseudo / numéro) : une seule fois
+                  final recents = RecentsStore.distinct(
+                      RecentsStore.recents.value, contacts, seno);
                   return _buildMerchantActions(
                       context, recents, contacts, seno);
                 },
               ),
+              // Demandes de paiement reçues (Encaisser) : Payer / Refuser
+              const PaymentRequestsSection(),
               const SizedBox(height: 20),
             ],
           ),
@@ -365,18 +371,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   icon: HugeIcons.strokeRoundedArrowDownLeft01,
                   color: Colors.white,
                   foregroundColor: Colors.black,
-                  // QR de réception : le client le scanne pour payer
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
-                        builder: (_) => const QRCodeViewerScreen()),
+                        builder: (_) => const SendMoneyScreen(collect: true)),
                   ),
                 ),
               ),
             ],
           ),
         ),
-        if (recents.isNotEmpty) ...[
+        // Card des demandes de paiement affichée : pas de récents
+        if (recents.isNotEmpty && !PaymentRequestsSection.visible.value) ...[
           const SizedBox(height: 16),
           SizedBox(
             height: 80,

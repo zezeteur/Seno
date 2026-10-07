@@ -190,9 +190,8 @@ class SupabaseService {
   static Future<String> getMerchantQr() => CacheStore.cached<String>(
         name: 'qr_merchant',
         userId: client?.auth.currentUser?.id,
-        fetch: () async =>
-            (await _invokeAuth('qr-code', {'action': 'merchant_static'}))[
-                'payload'] as String,
+        fetch: () async => (await _invokeAuth(
+            'qr-code', {'action': 'merchant_static'}))['payload'] as String,
         encode: (v) => v,
         decode: (j) => j as String,
       );
@@ -1063,6 +1062,7 @@ class SupabaseService {
     String? toCompteId,
     String? toNumero,
     String? toReseauId,
+    String? paymentRequestId,
   }) async {
     final res = await _invokeAuth('transfer', {
       'action': 'create',
@@ -1074,12 +1074,52 @@ class SupabaseService {
       if (toCompteId != null) 'to_compte_id': toCompteId,
       if (toNumero != null) 'to_numero': toNumero,
       if (toReseauId != null) 'to_reseau_id': toReseauId,
+      if (paymentRequestId != null) 'payment_request_id': paymentRequestId,
     });
     return (
       id: res['id'] as String,
       redirectUrl: res['redirect_url'] as String
     );
   }
+
+  // ---------- Demandes de paiement (« Encaisser ») ----------
+
+  /// Demande [amount] FCFA à l'utilisateur Seno [payerPseudo], à créditer sur
+  /// [compteId] (un compte de l'utilisateur). Le payeur est notifié (push).
+  static Future<String> createPaymentRequest({
+    required String payerPseudo,
+    required String compteId,
+    required int amount,
+  }) async {
+    final res = await _invokeAuth('payment-request', {
+      'action': 'create',
+      'payer_pseudo': payerPseudo,
+      'compte_id': compteId,
+      'amount': amount,
+    });
+    return res['id'] as String;
+  }
+
+  /// Demandes reçues et envoyées (30 derniers jours)
+  static Future<List<PaymentRequest>> getMyPaymentRequests() async {
+    final rows = await client!.rpc('get_my_payment_requests') as List<dynamic>;
+    return [
+      for (final r in rows.cast<Map<String, dynamic>>())
+        PaymentRequest.fromJson(r),
+    ];
+  }
+
+  /// Le payeur refuse (`refuser`), le demandeur annule (`annuler`)
+  static Future<void> respondPaymentRequest(String id, String action) async {
+    await client!.rpc('respond_payment_request',
+        params: {'p_id': id, 'p_action': action});
+    paymentRequestsRevision.value++;
+    // Refusée : passe tout de suite dans l'historique
+    if (action == 'refuser') transactionsRevision.value++;
+  }
+
+  /// Incrémenté quand une demande change : les listes se rechargent
+  static final paymentRequestsRevision = ValueNotifier<int>(0);
 
   /// Statut d'un envoi (le serveur interroge Jèko si le webhook tarde)
   static Future<String> getTransfertStatus(String id) async {
@@ -1133,6 +1173,15 @@ class SupabaseService {
             if (id is String && statut is String) {
               _transfertEvents.add((id: id, statut: statut));
             }
+          },
+        )
+        // Demande de paiement créée, refusée, annulée ou liée à un envoi
+        .onBroadcast(
+          event: 'payment_request',
+          // Une demande refusée apparaît aussi dans l'historique
+          callback: (_) {
+            paymentRequestsRevision.value++;
+            transactionsRevision.value++;
           },
         )
         .subscribe();
@@ -1426,6 +1475,10 @@ class SenoTransaction {
   final String id;
   final bool isReceived;
 
+  /// Demande de paiement de plus de 24 h (reçue si [isReceived]) : pas
+  /// d'argent échangé, [statut] = demande_payee, demande_refusee…
+  final bool isRequest;
+
   /// Pseudo de l'autre partie, sinon nom / numéro saisi
   final String label;
   final String? avatarUrl;
@@ -1462,6 +1515,7 @@ class SenoTransaction {
   const SenoTransaction({
     required this.id,
     required this.isReceived,
+    this.isRequest = false,
     required this.label,
     required this.avatarUrl,
     required this.montant,
@@ -1480,7 +1534,8 @@ class SenoTransaction {
   /// Ligne de get_my_transactions (même format que le cache)
   factory SenoTransaction.fromJson(Map<String, dynamic> r) => SenoTransaction(
         id: r['id'] as String,
-        isReceived: r['sens'] == 'reception',
+        isReceived: r['sens'] == 'reception' || r['sens'] == 'demande_recue',
+        isRequest: (r['sens'] as String).startsWith('demande_'),
         label: r['label'] as String,
         avatarUrl: r['avatar_url'] as String?,
         montant: r['montant'] as int,
@@ -1498,7 +1553,9 @@ class SenoTransaction {
 
   Map<String, dynamic> toJson() => {
         'id': id,
-        'sens': isReceived ? 'reception' : 'envoi',
+        'sens': isRequest
+            ? (isReceived ? 'demande_recue' : 'demande_envoyee')
+            : (isReceived ? 'reception' : 'envoi'),
         'label': label,
         'avatar_url': avatarUrl,
         'montant': montant,
@@ -1564,4 +1621,44 @@ class SenoStatistics {
             count: (c['count'] as num).toInt(),
           ),
       ];
+}
+
+/// Demande de paiement : [received] = à payer par l'utilisateur
+class PaymentRequest {
+  final String id;
+  final bool received;
+  final String pseudo;
+  final String? avatarUrl;
+  final int amount;
+
+  /// Compte crédité (demandes reçues uniquement)
+  final String? compteDestination;
+
+  /// en_attente, en_paiement, payee, refusee, annulee, expiree
+  final String statut;
+  final DateTime createdAt;
+
+  const PaymentRequest({
+    required this.id,
+    required this.received,
+    required this.pseudo,
+    required this.avatarUrl,
+    required this.amount,
+    required this.compteDestination,
+    required this.statut,
+    required this.createdAt,
+  });
+
+  bool get isPending => statut == 'en_attente';
+
+  factory PaymentRequest.fromJson(Map<String, dynamic> j) => PaymentRequest(
+        id: j['id'] as String,
+        received: j['sens'] == 'recue',
+        pseudo: j['pseudo'] as String? ?? '',
+        avatarUrl: j['avatar_url'] as String?,
+        amount: j['montant'] as int,
+        compteDestination: j['compte_destination'] as String?,
+        statut: j['statut'] as String,
+        createdAt: DateTime.parse(j['created_at'] as String),
+      );
 }
