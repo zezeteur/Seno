@@ -1,4 +1,6 @@
 import 'dart:math';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
@@ -18,7 +20,11 @@ class QRCodeViewerScreen extends StatefulWidget {
   /// Scanner seul : pas d'onglet « Recevoir » ni de sélecteur (depuis l'envoi)
   final bool scanOnly;
 
-  const QRCodeViewerScreen({super.key, this.scanOnly = false});
+  /// Ouvert depuis « Encaisser » pour la boutique : QR fixe de la boutique
+  final bool merchant;
+
+  const QRCodeViewerScreen(
+      {super.key, this.scanOnly = false, this.merchant = false});
 
   @override
   State<QRCodeViewerScreen> createState() => _QRCodeViewerScreenState();
@@ -34,6 +40,9 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
   bool _isFlipped = false;
   bool _torchEnabled = false;
   bool _handlingScan = false;
+
+  /// Boutique affichée sur la carte (mode marchand)
+  MerchantInfo? _merchant;
 
   /// QR en cours de vérification (chargement sur la caméra)
   bool _resolving = false;
@@ -68,6 +77,12 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
   void initState() {
     super.initState();
     _pageController = PageController();
+    if (widget.merchant) {
+      _merchant = SupabaseService.peekMyMerchant();
+      SupabaseService.getMyMerchant().then((m) {
+        if (mounted && m != null) setState(() => _merchant = m);
+      }).catchError((_) {});
+    }
     _tabController = TabController(length: 2, vsync: this);
     _flipController = AnimationController(
       vsync: this,
@@ -202,6 +217,7 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
 
   @override
   void dispose() {
+    _scanPlayer.dispose();
     _pageController.dispose();
     _tabController.dispose();
     _cameraController.dispose();
@@ -282,8 +298,10 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
                     fontWeight: FontWeight.bold,
                   ),
                   tabs: [
-                    Tab(text: context.tr('send')),
-                    Tab(text: context.tr('receive')),
+                    Tab(text: context.tr(widget.merchant ? 'collect' : 'send')),
+                    Tab(
+                        text: context
+                            .tr(widget.merchant ? 'qr_code' : 'receive')),
                   ],
                   onTap: (index) {
                     _pageController.animateToPage(
@@ -383,31 +401,34 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         _buildFlipCard(),
-        const SizedBox(height: 24),
-        FilledButton.icon(
-          style: FilledButton.styleFrom(
-            backgroundColor: Colors.black,
-            foregroundColor: Colors.white,
-            minimumSize: const Size(300, 52),
-            shape: const StadiumBorder(),
-          ),
-          onPressed: _sharing ? null : _openShareSheet,
-          icon: _sharing
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
+        // Boutique : pas de partage (message d'invitation personnel)
+        if (!widget.merchant) ...[
+          const SizedBox(height: 24),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.black,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(300, 52),
+              shape: const StadiumBorder(),
+            ),
+            onPressed: _sharing ? null : _openShareSheet,
+            icon: _sharing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const HugeIcon(
+                    icon: HugeIcons.strokeRoundedShare08,
+                    size: 20,
                     color: Colors.white,
                   ),
-                )
-              : const HugeIcon(
-                  icon: HugeIcons.strokeRoundedShare08,
-                  size: 20,
-                  color: Colors.white,
-                ),
-          label: Text(context.tr('share')),
-        ),
+            label: Text(context.tr('share')),
+          ),
+        ],
       ],
     );
   }
@@ -567,9 +588,12 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
   }
 
   /// QR scanné : résolution côté serveur puis écran du montant
+  final AudioPlayer _scanPlayer = AudioPlayer();
+
   Future<void> _onScanned(String value) async {
     if (_handlingScan) return;
     _handlingScan = true;
+    _scanPlayer.play(AssetSource('sounds/scan.wav'));
     setState(() => _resolving = true);
     await _cameraController.stop();
     var leaving = false;
@@ -579,15 +603,17 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
       setState(() => _resolving = false);
       if (payee.isSelf) {
         ToastService.showInfo(context, context.tr('qr_self'));
-      } else if (payee.numeroMasque == null) {
+      } else if (!widget.merchant && payee.numeroMasque == null) {
         // Aucun compte de réception : rien à payer
         ToastService.showError(context, context.tr('qr_no_default_account'));
       } else {
         // Directement sur le montant ; retour vers l'accueil (scanner et
-        // écran d'envoi intermédiaire retirés)
+        // écran d'envoi intermédiaire retirés). Boutique : « Demander à »
         Navigator.of(context).pushAndRemoveUntil(
             MaterialPageRoute(
               builder: (_) => SendMoneyScreen(
+                collect: widget.merchant,
+                collectForShop: widget.merchant,
                 initialRecipient: (
                   value: payee.pseudo,
                   avatarUrl: payee.avatarUrl,
@@ -626,6 +652,10 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            if (widget.merchant && _merchant != null) ...[
+              _buildMerchantHeader(_merchant!),
+              const SizedBox(height: 24),
+            ],
             // Marge blanche autour du QR : coins arrondis sans rogner les repères
             Container(
               padding: const EdgeInsets.all(16),
@@ -633,11 +663,49 @@ class _QRCodeViewerScreenState extends State<QRCodeViewerScreen>
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(24),
               ),
-              child: const DynamicQrCode(size: 200),
+              child: widget.merchant
+                  ? const MerchantQrCode(size: 200)
+                  : const DynamicQrCode(size: 200),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  /// Logo et nom de la boutique, au-dessus de son QR
+  Widget _buildMerchantHeader(MerchantInfo merchant) {
+    final logoUrl = merchant.logoUrl;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        CircleAvatar(
+          radius: 20,
+          backgroundColor: Colors.white,
+          backgroundImage:
+              logoUrl != null ? CachedNetworkImageProvider(logoUrl) : null,
+          child: logoUrl == null
+              ? const HugeIcon(
+                  icon: HugeIcons.strokeRoundedStore01,
+                  color: Colors.black,
+                  size: 20,
+                )
+              : null,
+        ),
+        const SizedBox(width: 12),
+        Flexible(
+          child: Text(
+            merchant.businessName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: AppColors.textOnPrimary,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ],
     );
   }
 

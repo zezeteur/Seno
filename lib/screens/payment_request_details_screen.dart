@@ -26,8 +26,12 @@ class PaymentRequestDetailsScreen extends StatefulWidget {
 }
 
 class _PaymentRequestDetailsScreenState
-    extends State<PaymentRequestDetailsScreen> {
+    extends State<PaymentRequestDetailsScreen> with WidgetsBindingObserver {
   bool _busy = false;
+
+  /// Demande affichée : statut mis à jour en temps réel
+  late PaymentRequest _r = widget.request;
+  StreamSubscription<String>? _events;
 
   /// Compte à rebours de l'expiration (rafraîchi chaque seconde)
   Timer? _ticker;
@@ -35,6 +39,12 @@ class _PaymentRequestDetailsScreenState
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _events = SupabaseService.paymentRequestEvents
+        .where((id) => id == _r.id)
+        .listen((_) => _refreshStatut());
+    // Payée : seul l'envoi lié change de statut (événement « transfert »)
+    SupabaseService.transactionsRevision.addListener(_refreshStatut);
     if (_r.isPending) {
       _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
         if (!mounted) return;
@@ -46,12 +56,30 @@ class _PaymentRequestDetailsScreenState
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refreshStatut();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _events?.cancel();
+    SupabaseService.transactionsRevision.removeListener(_refreshStatut);
     _ticker?.cancel();
     super.dispose();
   }
 
-  PaymentRequest get _r => widget.request;
+  /// Payée, refusée, annulée… par l'autre partie : statut rechargé
+  Future<void> _refreshStatut() async {
+    try {
+      final statut = await SupabaseService.getPaymentRequestStatut(_r.id);
+      if (!mounted || statut == null || statut == _r.statut) return;
+      setState(() => _r = _r.copyWith(statut: statut));
+      if (!_r.isPending) _ticker?.cancel();
+    } catch (_) {
+      // Hors ligne : le dernier statut reste affiché
+    }
+  }
 
   static const _validity = Duration(hours: 24);
 
@@ -243,7 +271,7 @@ class _PaymentRequestDetailsScreenState
                                   _r.received
                                       ? 'payment_request_asks'
                                       : 'payment_request_to',
-                                  {'pseudo': '@${_r.pseudo}'}),
+                                  {'pseudo': _r.displayName}),
                               textAlign: TextAlign.center,
                               style: textTheme.bodyMedium
                                   ?.copyWith(color: _inkSoft),

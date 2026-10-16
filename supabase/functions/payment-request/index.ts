@@ -23,6 +23,7 @@ Deno.serve(async (req) => {
     if (body.action !== 'create') return json({ error: 'invalid_request' }, 400);
 
     const { payer_pseudo, compte_id, amount } = body;
+    const forShop = body.for_shop === true;
     if (
       typeof payer_pseudo !== 'string' || typeof compte_id !== 'string' ||
       !Number.isInteger(amount) || amount < MIN_AMOUNT || amount > MAX_AMOUNT
@@ -34,6 +35,17 @@ Deno.serve(async (req) => {
     const { data: compte } = await admin
       .from('comptes').select('id').eq('id', compte_id).eq('proprietaire', userId).maybeSingle();
     if (!compte) return json({ error: 'invalid_request' }, 400);
+
+    // Encaisser pour la boutique : elle doit être active et non suspendue
+    let shopName: string | null = null;
+    if (forShop) {
+      const { data: shop } = await admin
+        .from('merchant_requests').select('business_name')
+        .eq('user_id', userId).eq('is_active', true).eq('admin_suspended', false)
+        .maybeSingle();
+      if (!shop) return json({ error: 'invalid_request' }, 400);
+      shopName = shop.business_name;
+    }
 
     // Pseudo exact (insensible à la casse) : on échappe les jokers de ilike
     const pseudo = payer_pseudo.replace('@', '').trim().replace(/[\\%_]/g, '\\$&');
@@ -53,6 +65,7 @@ Deno.serve(async (req) => {
       payeur: payer.id,
       compte_destination: compte.id,
       montant: amount,
+      pour_boutique: forShop,
     }).select('id').single();
     if (error) throw error;
 
@@ -68,7 +81,7 @@ Deno.serve(async (req) => {
           const formatted = amount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
           await sendPush(admin, tokens.map((t) => t.token), {
             title: 'Demande de paiement',
-            body: `@${me?.pseudo ?? 'Seno'} vous demande ${formatted} FCFA`,
+            body: `${shopName ?? `@${me?.pseudo ?? 'Seno'}`} vous demande ${formatted} FCFA`,
             categorie: 'payment_request',
           });
         }

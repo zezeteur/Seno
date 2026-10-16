@@ -2,6 +2,7 @@ import 'services/supabase_service.dart';
 import 'services/cache_store.dart';
 import 'services/push_service.dart';
 import 'services/payment_return_service.dart';
+import 'services/payment_request_opener.dart';
 import 'services/secure_session_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -52,6 +53,7 @@ void main() async {
 
   // Retour de la page de paiement : rouvre l'envoi concerné
   PaymentReturnService.init(MyApp.navigatorKey);
+  PaymentRequestOpener.init(MyApp.navigatorKey);
   runApp(const MyApp());
 }
 

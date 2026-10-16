@@ -276,10 +276,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     // Avatar : ouvre l'onglet Compte
-                              GestureDetector(
-                                onTap: () => setState(() => _currentIndex = 3),
-                                child: _buildAvatar(context),
-                              ),
+                                    GestureDetector(
+                                      onTap: () =>
+                                          setState(() => _currentIndex = 3),
+                                      child: _buildAvatar(context),
+                                    ),
                                     const SizedBox(height: 12),
                                     // Une seule ligne : prénom long tronqué (« Hello Jean-Christo… »)
                                     Text(
@@ -381,6 +382,93 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  /// Encaisser : avec une boutique active, choix compte personnel / boutique
+  Future<void> _openCollect() async {
+    var merchant = SupabaseService.peekMyMerchant();
+    if (merchant == null) {
+      try {
+        merchant = await SupabaseService.getMyMerchant();
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    var forShop = false;
+    if (merchant != null && merchant.isActive && !merchant.adminSuspended) {
+      final choice = await _chooseCollectTarget(merchant);
+      if (choice == null || !mounted) return;
+      forShop = choice;
+    }
+    // Boutique : page QR avec le QR fixe de la boutique
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+          builder: (_) => forShop
+              ? const QRCodeViewerScreen(merchant: true)
+              : const SendMoneyScreen(collect: true)),
+    );
+  }
+
+  /// true : boutique, false : compte personnel, null : fermé
+  Future<bool?> _chooseCollectTarget(MerchantInfo merchant) {
+    final textTheme = Theme.of(context).textTheme;
+    return showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewPaddingOf(sheetContext).bottom + 24,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+              child: Text(
+                context.tr('collect_for_title'),
+                style: textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
+            ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 24),
+              leading: const CircleAvatar(
+                backgroundColor: AppColors.primary,
+                child: HugeIcon(
+                  icon: HugeIcons.strokeRoundedUser,
+                  color: AppColors.textOnPrimary,
+                  size: 20,
+                ),
+              ),
+              title: Text(context.tr('collect_for_personal')),
+              onTap: () => Navigator.of(sheetContext).pop(false),
+            ),
+            ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 24),
+              leading: CircleAvatar(
+                backgroundColor: AppColors.primary,
+                backgroundImage: merchant.logoUrl != null
+                    ? CachedNetworkImageProvider(merchant.logoUrl!)
+                    : null,
+                child: merchant.logoUrl == null
+                    ? const HugeIcon(
+                        icon: HugeIcons.strokeRoundedStore01,
+                        color: AppColors.textOnPrimary,
+                        size: 20,
+                      )
+                    : null,
+              ),
+              title: Text(context.tr('collect_for_shop')),
+              subtitle: Text(merchant.pseudo != null
+                  ? '${merchant.businessName} · @${merchant.pseudo}'
+                  : merchant.businessName),
+              onTap: () => Navigator.of(sheetContext).pop(true),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// Envoyer et Encaisser côte à côte (pour tous), récents en dessous
   Widget _buildMerchantActions(
     BuildContext context,
@@ -411,11 +499,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   icon: HugeIcons.strokeRoundedArrowDownLeft01,
                   color: Colors.white,
                   foregroundColor: Colors.black,
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const SendMoneyScreen(collect: true)),
-                  ),
+                  onTap: _openCollect,
                 ),
               ),
             ],
@@ -681,25 +765,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     ];
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          for (var i = 0; i < items.length; i++) ...[
-            if (i > 0) const SizedBox(width: 10),
-            _NavItem(
-              icon: items[i].icon,
-              label: items[i].label,
-              isSelected: _currentIndex == i,
-              onTap: () {
-                // Retour sur le portefeuille : cartes empilées par défaut
-                if (i == 1 && _currentIndex != 1) {
-                  WalletScreen.globalKey.currentState?.collapseCards();
-                }
-                setState(() => _currentIndex = i);
-              },
-            ),
+      // Libellé long (« Statistiques ») sur écran étroit : réduit au lieu de déborder
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            for (var i = 0; i < items.length; i++) ...[
+              if (i > 0) const SizedBox(width: 10),
+              _NavItem(
+                icon: items[i].icon,
+                label: items[i].label,
+                isSelected: _currentIndex == i,
+                onTap: () {
+                  // Retour sur le portefeuille : cartes empilées par défaut
+                  if (i == 1 && _currentIndex != 1) {
+                    WalletScreen.globalKey.currentState?.collapseCards();
+                  }
+                  setState(() => _currentIndex = i);
+                },
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

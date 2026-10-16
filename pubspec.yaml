@@ -37,6 +37,7 @@ dependencies:
   firebase_core: ^4.15.0
   firebase_messaging: ^16.7.0
   package_info_plus: ^10.2.2
+  audioplayers: ^6.8.1
 
 dev_dependencies:
   flutter_test:
@@ -60,6 +61,7 @@ flutter:
     - assets/images/ios-icon.png
     - assets/jsons/
     - assets/jsons/OpenStore.json
+    - assets/sounds/
 
 flutter_launcher_icons:
   android: true

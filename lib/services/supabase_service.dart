@@ -1086,12 +1086,15 @@ class SupabaseService {
 
   /// Demande [amount] FCFA à l'utilisateur Seno [payerPseudo], à créditer sur
   /// [compteId] (un compte de l'utilisateur). Le payeur est notifié (push).
+  /// [forShop] : demande au nom de la boutique de l'utilisateur.
   static Future<String> createPaymentRequest({
     required String payerPseudo,
     required String compteId,
     required int amount,
+    bool forShop = false,
   }) async {
     final res = await _invokeAuth('payment-request', {
+      if (forShop) 'for_shop': true,
       'action': 'create',
       'payer_pseudo': payerPseudo,
       'compte_id': compteId,
@@ -1109,6 +1112,11 @@ class SupabaseService {
     ];
   }
 
+  /// Statut affiché d'une demande (null si introuvable)
+  static Future<String?> getPaymentRequestStatut(String id) async =>
+      await client!.rpc('get_payment_request_statut', params: {'p_id': id})
+          as String?;
+
   /// Le payeur refuse (`refuser`), le demandeur annule (`annuler`)
   static Future<void> respondPaymentRequest(String id, String action) async {
     await client!.rpc('respond_payment_request',
@@ -1120,6 +1128,11 @@ class SupabaseService {
 
   /// Incrémenté quand une demande change : les listes se rechargent
   static final paymentRequestsRevision = ValueNotifier<int>(0);
+
+  /// Id de chaque demande créée ou modifiée (temps réel)
+  static final _paymentRequestEvents = StreamController<String>.broadcast();
+  static Stream<String> get paymentRequestEvents =>
+      _paymentRequestEvents.stream;
 
   /// Statut d'un envoi (le serveur interroge Jèko si le webhook tarde)
   static Future<String> getTransfertStatus(String id) async {
@@ -1179,9 +1192,14 @@ class SupabaseService {
         .onBroadcast(
           event: 'payment_request',
           // Une demande refusée apparaît aussi dans l'historique
-          callback: (_) {
+          callback: (message) {
             paymentRequestsRevision.value++;
             transactionsRevision.value++;
+            final data =
+                message['payload'] is Map ? message['payload'] as Map : message;
+            if (data['id'] case final String id) {
+              _paymentRequestEvents.add(id);
+            }
           },
         )
         .subscribe();
@@ -1638,6 +1656,9 @@ class PaymentRequest {
   final String statut;
   final DateTime createdAt;
 
+  /// Demande faite par une boutique : son nom (photo = logo de la boutique)
+  final String? shopName;
+
   const PaymentRequest({
     required this.id,
     required this.received,
@@ -1647,9 +1668,25 @@ class PaymentRequest {
     required this.compteDestination,
     required this.statut,
     required this.createdAt,
+    this.shopName,
   });
 
+  /// Nom affiché de l'autre partie : boutique, sinon @pseudo
+  String get displayName => shopName ?? '@$pseudo';
+
   bool get isPending => statut == 'en_attente';
+
+  PaymentRequest copyWith({required String statut}) => PaymentRequest(
+        id: id,
+        received: received,
+        pseudo: pseudo,
+        avatarUrl: avatarUrl,
+        amount: amount,
+        compteDestination: compteDestination,
+        statut: statut,
+        createdAt: createdAt,
+        shopName: shopName,
+      );
 
   factory PaymentRequest.fromJson(Map<String, dynamic> j) => PaymentRequest(
         id: j['id'] as String,
@@ -1660,5 +1697,6 @@ class PaymentRequest {
         compteDestination: j['compte_destination'] as String?,
         statut: j['statut'] as String,
         createdAt: DateTime.parse(j['created_at'] as String),
+        shopName: j['shop_name'] as String?,
       );
 }

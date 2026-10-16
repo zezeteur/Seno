@@ -247,6 +247,7 @@ class TransactionTile extends StatelessWidget {
                     compteDestination: null,
                     statut: tx.statut.substring('demande_'.length),
                     createdAt: tx.createdAt,
+                    shopName: tx.merchantName,
                   ),
                 )
               : TransactionDetailsScreen(

@@ -37,6 +37,9 @@ class SendMoneyScreen extends StatefulWidget {
   /// Ouvert depuis « Encaisser » : demande de paiement à un compte Seno
   final bool collect;
 
+  /// Encaisser au nom de la boutique de l'utilisateur (scan en mode boutique)
+  final bool collectForShop;
+
   /// Paiement d'une demande reçue : destinataire, montant et compte imposés
   final PaymentRequest? paymentRequest;
 
@@ -46,6 +49,7 @@ class SendMoneyScreen extends StatefulWidget {
       this.initialCategory,
       this.initialShopName,
       this.collect = false,
+      this.collectForShop = false,
       this.paymentRequest});
 
   @override
@@ -825,6 +829,7 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
         payerPseudo: _recipient,
         compteId: compte.id,
         amount: _amountValue,
+        forShop: widget.collectForShop,
       );
       SupabaseService.paymentRequestsRevision.value++;
       if (!mounted) return;

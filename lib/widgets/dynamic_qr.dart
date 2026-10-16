@@ -148,3 +148,51 @@ class _DynamicQrCodeState extends State<DynamicQrCode>
     );
   }
 }
+
+/// QR fixe de la boutique (copie en cache affichée tout de suite)
+class MerchantQrCode extends StatefulWidget {
+  final double size;
+
+  const MerchantQrCode({super.key, required this.size});
+
+  @override
+  State<MerchantQrCode> createState() => _MerchantQrCodeState();
+}
+
+class _MerchantQrCodeState extends State<MerchantQrCode> {
+  String? _payload = SupabaseService.peekMerchantQr();
+
+  @override
+  void initState() {
+    super.initState();
+    SupabaseService.getMerchantQr().then((qr) {
+      if (mounted && qr != _payload) setState(() => _payload = qr);
+    }).catchError((_) {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final payload = _payload;
+    return SizedBox(
+      width: widget.size,
+      height: widget.size,
+      child: payload == null
+          ? const ColoredBox(color: Colors.white)
+          : QrImageView(
+              data: payload,
+              version: QrVersions.auto,
+              size: widget.size,
+              padding: EdgeInsets.zero,
+              backgroundColor: Colors.white,
+              eyeStyle: const QrEyeStyle(
+                eyeShape: QrEyeShape.circle,
+                color: Colors.black,
+              ),
+              dataModuleStyle: const QrDataModuleStyle(
+                dataModuleShape: QrDataModuleShape.circle,
+                color: Colors.black,
+              ),
+            ),
+    );
+  }
+}

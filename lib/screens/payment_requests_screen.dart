@@ -260,7 +260,7 @@ class _PaymentRequestsScreenState extends State<PaymentRequestsScreen> {
       ),
       title: Text(
         context.tr(r.received ? 'payment_request_asks' : 'payment_request_to',
-            {'pseudo': '@${r.pseudo}'}),
+            {'pseudo': r.displayName}),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
@@ -344,7 +344,7 @@ Future<bool> confirmCancelPaymentRequest(
           Text(
             context.tr('payment_request_cancel_body', {
               'amount': '${formatPaymentAmount(r.amount)} FCFA',
-              'pseudo': '@${r.pseudo}',
+              'pseudo': r.displayName,
             }),
             style:
                 textTheme.bodyMedium?.copyWith(color: AppColors.textSecondary),
