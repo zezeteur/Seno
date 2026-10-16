@@ -38,6 +38,7 @@ dependencies:
   firebase_messaging: ^16.7.0
   package_info_plus: ^10.2.2
   audioplayers: ^6.8.1
+  permission_handler: ^13.0.2
 
 dev_dependencies:
   flutter_test:

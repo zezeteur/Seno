@@ -13,6 +13,7 @@ import '../widgets/transaction_list.dart';
 import '../widgets/user_avatar.dart';
 import 'qr_code_viewer_screen.dart';
 import 'send_money_screen.dart';
+import 'nearby_send_screen.dart';
 import '../widgets/payment_requests_section.dart';
 import 'wallet_screen.dart';
 import 'statistics_screen.dart';
@@ -354,7 +355,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
 
               // Contacts pour envoyer de l'argent - sans padding latéral pour aller jusqu'aux bords
-              // 3 derniers destinataires (nom du répertoire si connu)
+              // 5 derniers destinataires (nom du répertoire si connu)
               ListenableBuilder(
                 listenable: Listenable.merge([
                   RecentsStore.recents,
@@ -373,7 +374,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 },
               ),
               // Demandes de paiement reçues (Encaisser) : Payer / Refuser
-              const PaymentRequestsSection(),
+              PaymentRequestsSection(leading: _buildNearbyButton(context)),
               const SizedBox(height: 20),
             ],
           ),
@@ -506,7 +507,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         ),
         // Card des demandes de paiement affichée : pas de récents
-        if (recents.isNotEmpty && !PaymentRequestsSection.visible.value) ...[
+        // Card des demandes affichée : le radar passe sur sa ligne, pas de récents
+        if (!PaymentRequestsSection.visible.value) ...[
           const SizedBox(height: 16),
           SizedBox(
             height: 80,
@@ -514,8 +516,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 24),
               children: [
-                for (final (i, r) in recents.take(4).indexed) ...[
-                  if (i > 0) const SizedBox(width: 12),
+                _buildNearbyButton(context),
+                for (final r in recents.take(5)) ...[
+                  const SizedBox(width: 12),
                   _buildSendContact(
                     context,
                     icon: HugeIcons.strokeRoundedAiUser,
@@ -570,6 +573,50 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             HugeIcon(icon: icon, size: 18, color: foregroundColor),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Radar en tête des récents : envoi aux appareils à proximité
+  Widget _buildNearbyButton(BuildContext context) {
+    return GestureDetector(
+      // Le cercle de la page radar part du point touché
+      onTapUp: (d) => Navigator.push(
+        context,
+        NearbySendScreen.route(d.globalPosition),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 56,
+            height: 56,
+            decoration: const BoxDecoration(
+              color: Colors.black,
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: HugeIcon(
+              icon: HugeIcons.strokeRoundedRadar01,
+              size: 24,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 6),
+          SizedBox(
+            width: 64,
+            child: Text(
+              'À proximité',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.black.withOpacity(0.6),
+                    fontSize: 12,
+                    height: 1.2,
+                  ),
+            ),
+          ),
+        ],
       ),
     );
   }
