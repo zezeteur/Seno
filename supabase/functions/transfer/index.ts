@@ -157,6 +157,12 @@ Deno.serve(async (req) => {
       }
       if (created.error) return json({ error: created.error, limit: created.limit }, 400);
       const row = { id: created.id as string };
+      // Paiement boutique : compté dans les statistiques marchand du back office
+      if (merchantPaysFees) {
+        const { error: shopFlagError } = await admin
+          .from('transferts').update({ vers_boutique: true }).eq('id', row.id);
+        if (shopFlagError) throw shopFlagError;
+      }
       if (payment_request_id !== undefined) {
         const { error: linkError } = await admin
           .from('payment_requests').update({ transfert_id: row.id, updated_at: new Date().toISOString() })
