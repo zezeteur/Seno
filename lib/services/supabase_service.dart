@@ -805,8 +805,9 @@ class SupabaseService {
     ];
   }
 
-  /// Le destinataire (pseudo utilisateur ou boutique) est-il un marchand
-  /// actif ? Ses frais sont alors retirés du montant reçu (règle de transfer)
+  /// Le pseudo est-il celui d'une boutique active ? Ses frais sont alors
+  /// retirés du montant reçu (règle de transfer). Le pseudo personnel du
+  /// commerçant reste un envoi classique.
   static Future<bool> isSenoMerchant(String pseudo) async {
     final result =
         await client!.rpc('is_seno_merchant', params: {'p_pseudo': pseudo});
@@ -1063,6 +1064,7 @@ class SupabaseService {
     String? toNumero,
     String? toReseauId,
     String? paymentRequestId,
+    bool toShop = false,
   }) async {
     final res = await _invokeAuth('transfer', {
       'action': 'create',
@@ -1075,6 +1077,7 @@ class SupabaseService {
       if (toNumero != null) 'to_numero': toNumero,
       if (toReseauId != null) 'to_reseau_id': toReseauId,
       if (paymentRequestId != null) 'payment_request_id': paymentRequestId,
+      if (toShop) 'to_shop': true,
     });
     return (
       id: res['id'] as String,

@@ -65,15 +65,37 @@ Deno.serve(async (req) => {
         if (profilesError) throw profilesError;
         const byId = new Map(profiles?.map((p) => [p.id, p]) ?? []);
 
+        // Boutique active du propriétaire : affichée à part, payable directement
+        const { data: shops, error: shopsError } = await admin
+          .from('merchant_requests').select('user_id, pseudo, business_name, logo_url, category')
+          .in('user_id', rows.map((r) => r.user_id)).eq('is_active', true);
+        if (shopsError) throw shopsError;
+        const shopById = new Map(shops?.map((s) => [s.user_id, s]) ?? []);
+
         const people = rows.flatMap((r) => {
+          const out = [];
           const p = byId.get(r.user_id);
-          if (!p?.pseudo) return [];
-          return [{
-            token: r.token,
-            pseudo: p.pseudo,
-            prenoms: p.prenoms ?? null,
-            avatar_url: p.avatar_url ?? null,
-          }];
+          if (p?.pseudo) {
+            out.push({
+              token: r.token,
+              kind: 'person',
+              pseudo: p.pseudo,
+              prenoms: p.prenoms ?? null,
+              avatar_url: p.avatar_url ?? null,
+            });
+          }
+          const s = shopById.get(r.user_id);
+          if (s?.pseudo) {
+            out.push({
+              token: r.token,
+              kind: 'shop',
+              pseudo: s.pseudo,
+              business_name: s.business_name ?? null,
+              avatar_url: s.logo_url ?? null,
+              category: s.category ?? null,
+            });
+          }
+          return out;
         });
         return json({ people });
       }

@@ -26,7 +26,7 @@ Deno.serve(async (req) => {
     if (body.action === 'create') {
       const {
         compte_id, amount, sender_pays_fees, to_compte_id, to_numero, to_reseau_id, label, idempotency_key,
-        payment_request_id,
+        payment_request_id, to_shop,
       } = body;
       if (
         typeof idempotency_key !== 'string' || !UUID_RE.test(idempotency_key) ||
@@ -76,14 +76,15 @@ Deno.serve(async (req) => {
 
       // Destination : compte Seno (id obtenu via get_seno_user_comptes), sinon numéro + réseau
       let dest: { compte: string | null; numero: string; reseau: string };
-      // Destinataire marchand (boutique active) : il paie les frais
+      // Paiement à la boutique (pseudo boutique, pas le compte personnel du
+      // commerçant) : le marchand paie les frais
       let merchantPaysFees = false;
       if (typeof to_compte_id === 'string') {
         const { data: c } = await admin
           .from('comptes').select('id, numero, id_reseau, proprietaire').eq('id', to_compte_id).maybeSingle();
         if (!c) return json({ error: 'invalid_request' }, 400);
         dest = { compte: c.id, numero: c.numero, reseau: c.id_reseau };
-        if (c.proprietaire !== userId) {
+        if (to_shop === true && c.proprietaire !== userId) {
           const { data: shop, error: shopError } = await admin
             .from('merchant_requests').select('user_id')
             .eq('user_id', c.proprietaire).eq('is_active', true).maybeSingle();

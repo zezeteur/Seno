@@ -941,6 +941,7 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
         toNumero: isPhone ? _recipientPhone : null,
         toReseauId: isPhone ? toReseau!.id : null,
         paymentRequestId: widget.paymentRequest?.id,
+        toShop: _recipientIsMerchant,
       );
     } catch (e) {
       // Échec définitif côté serveur : la clé est consommée, la prochaine

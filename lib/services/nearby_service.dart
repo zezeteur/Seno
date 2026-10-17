@@ -5,13 +5,16 @@ import 'package:flutter_ble_peripheral/flutter_ble_peripheral.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'supabase_service.dart';
 
-/// Personne Seno détectée à proximité (jeton BLE résolu par le serveur)
+/// Personne ou boutique Seno détectée à proximité (jeton BLE résolu par le
+/// serveur). Boutique : [name] = nom du commerce, [category] pour l'icône.
 typedef NearbyPerson = ({
   String token,
   String pseudo,
-  String? prenoms,
+  String? name,
   String? avatarUrl,
   int rssi,
+  bool isShop,
+  String? category,
 });
 
 /// État de l'envoi à proximité affiché par la page radar
@@ -47,8 +50,8 @@ class NearbyService {
   /// Jetons vus → dernière détection et puissance du signal
   static final _seen = <String, ({DateTime at, int rssi})>{};
 
-  /// Jetons déjà résolus (personne) ou inconnus du serveur (null)
-  static final _resolved = <String, NearbyPerson?>{};
+  /// Jetons déjà résolus (personne et éventuelle boutique ; vide si inconnu)
+  static final _resolved = <String, List<NearbyPerson>>{};
   static final _resolving = <String>{};
 
   /// Démarre la diffusion et le scan ; appelée à l'ouverture de la page radar
@@ -188,17 +191,20 @@ class NearbyService {
           body: {'action': 'resolve', 'tokens': tokens});
       final list = ((res.data as Map)['people'] as List).cast<Map>();
       for (final t in tokens) {
-        _resolved[t] = null;
+        _resolved[t] = [];
       }
       for (final p in list) {
         final token = p['token'] as String;
-        _resolved[token] = (
+        final isShop = p['kind'] == 'shop';
+        _resolved[token]?.add((
           token: token,
           pseudo: p['pseudo'] as String,
-          prenoms: p['prenoms'] as String?,
+          name: (isShop ? p['business_name'] : p['prenoms']) as String?,
           avatarUrl: p['avatar_url'] as String?,
           rssi: _seen[token]?.rssi ?? -100,
-        );
+          isShop: isShop,
+          category: p['category'] as String?,
+        ));
       }
     } catch (e) {
       // Hors ligne : on réessaiera à la prochaine détection
@@ -214,24 +220,27 @@ class NearbyService {
   static void _publish() {
     final byPseudo = <String, NearbyPerson>{};
     for (final e in _seen.entries) {
-      final p = _resolved[e.key];
-      if (p == null) continue;
-      final current = byPseudo[p.pseudo];
-      if (current == null || e.value.rssi > current.rssi) {
-        byPseudo[p.pseudo] = (
-          token: p.token,
-          pseudo: p.pseudo,
-          prenoms: p.prenoms,
-          avatarUrl: p.avatarUrl,
-          rssi: e.value.rssi,
-        );
+      for (final p in _resolved[e.key] ?? const <NearbyPerson>[]) {
+        final key = '${p.isShop}:${p.pseudo}';
+        final current = byPseudo[key];
+        if (current == null || e.value.rssi > current.rssi) {
+          byPseudo[key] = (
+            token: p.token,
+            pseudo: p.pseudo,
+            name: p.name,
+            avatarUrl: p.avatarUrl,
+            rssi: e.value.rssi,
+            isShop: p.isShop,
+            category: p.category,
+          );
+        }
       }
     }
     final list = byPseudo.values.toList()
       ..sort((a, b) => b.rssi.compareTo(a.rssi));
     if (!listEquals(
-        list.map((p) => p.pseudo).toList(),
-        people.value.map((p) => p.pseudo).toList())) {
+        list.map((p) => '${p.isShop}:${p.pseudo}').toList(),
+        people.value.map((p) => '${p.isShop}:${p.pseudo}').toList())) {
       people.value = list;
     }
   }

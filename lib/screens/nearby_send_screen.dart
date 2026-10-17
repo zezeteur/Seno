@@ -136,13 +136,19 @@ class _NearbySendScreenState extends State<NearbySendScreen>
               avatarUrl: p.avatarUrl,
               phone: null,
             ),
+            initialCategory: p.isShop ? p.category : null,
+            initialShopName: p.isShop ? p.name : null,
           ),
         ),
       );
 
-  /// « Anny A. » : premier prénom + initiale, sinon le pseudo
+  /// Boutique : nom du commerce ; personne : « Anny A. », sinon le pseudo
   static String _displayName(NearbyPerson p) {
-    final parts = (p.prenoms ?? '').trim().split(RegExp(r'\s+'));
+    if (p.isShop) {
+      final name = p.name?.trim() ?? '';
+      return name.isEmpty ? p.pseudo : name;
+    }
+    final parts = (p.name ?? '').trim().split(RegExp(r'\s+'));
     if (parts.first.isEmpty) return p.pseudo;
     return parts.length > 1 ? '${parts[0]} ${parts[1][0]}.' : parts[0];
   }
@@ -215,11 +221,11 @@ class _NearbySendScreenState extends State<NearbySendScreen>
                   ),
                 ),
               ),
-              const SizedBox(height: 40),
-              SizedBox(
-                height: 90,
-                child: _bluetoothDenied
-                    ? Center(
+              const SizedBox(height: 32),
+              _bluetoothDenied
+                  ? SizedBox(
+                      height: 90,
+                      child: Center(
                         child: FilledButton(
                           style: FilledButton.styleFrom(
                             backgroundColor: Colors.white,
@@ -228,12 +234,27 @@ class _NearbySendScreenState extends State<NearbySendScreen>
                           onPressed: _onDeniedTap,
                           child: Text(context.tr('nearby_enable_bluetooth')),
                         ),
-                      )
-                    : ValueListenableBuilder(
-                        valueListenable: NearbyService.people,
-                        builder: (context, people, _) => _buildPeople(people),
                       ),
-              ),
+                    )
+                  : ValueListenableBuilder(
+                      valueListenable: NearbyService.people,
+                      builder: (context, all, _) {
+                        final shops = all.where((p) => p.isShop).toList();
+                        final people = all.where((p) => !p.isShop).toList();
+                        // Hauteur réservée : le titre ne saute pas à la détection
+                        if (all.isEmpty) return const SizedBox(height: 90);
+                        return Column(
+                          children: [
+                            if (shops.isNotEmpty)
+                              _buildRow(context.tr('nearby_shops'), shops),
+                            if (shops.isNotEmpty && people.isNotEmpty)
+                              const SizedBox(height: 16),
+                            if (people.isNotEmpty)
+                              _buildRow(context.tr('nearby_people'), people),
+                          ],
+                        );
+                      },
+                    ),
               const SizedBox(height: 32),
             ],
           ),
@@ -285,8 +306,29 @@ class _NearbySendScreenState extends State<NearbySendScreen>
     );
   }
 
+  /// Rangée titrée (Boutiques / Personnes) défilant horizontalement
+  Widget _buildRow(String title, List<NearbyPerson> people) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Text(
+            title,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.75),
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(height: 74, child: _buildPeople(people)),
+      ],
+    );
+  }
+
   Widget _buildPeople(List<NearbyPerson> people) {
-    if (people.isEmpty) return const SizedBox.shrink();
     return ListView.separated(
       scrollDirection: Axis.horizontal,
       shrinkWrap: true,
@@ -309,6 +351,7 @@ class _NearbySendScreenState extends State<NearbySendScreen>
                   pseudo: p.pseudo,
                   avatarUrl: p.avatarUrl,
                   radius: 20,
+                  merchantCategory: p.isShop ? p.category ?? '' : null,
                   backgroundColor: const Color(0xFFF5E400),
                   foregroundColor: Colors.black,
                 ),
