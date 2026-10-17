@@ -32,7 +32,7 @@ if (flutterVersionName == null) {
 
 android {
     namespace "com.neotech.seno"
-    compileSdk Math.max(flutter.compileSdkVersion, 36) // 36 requis pour Live Updates (Android 16)
+    compileSdk Math.max(flutter.compileSdkVersion, 37) // 36 requis pour Live Updates (Android 16)
     ndkVersion flutter.ndkVersion
 
     compileOptions {
@@ -67,7 +67,7 @@ android {
 
     buildTypes {
         release {
-            signingConfig signingConfigs.release
+            signingConfig keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
         }
     }
 }
