@@ -1,11 +1,13 @@
 import 'dart:math' as math;
 
+import 'package:audioplayers/audioplayers.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../l10n/app_strings.dart';
-import '../services/recents_store.dart';
+import '../services/nearby_service.dart';
 import '../widgets/user_avatar.dart';
 import 'send_money_screen.dart';
 
@@ -54,8 +56,9 @@ class _NearbySendScreenState extends State<NearbySendScreen>
     duration: const Duration(milliseconds: 1800),
   )..repeat(reverse: true);
 
-  // TODO: alimenter via la détection BLE (jetons résolus par l'Edge Function)
-  final List<RecentRecipient> _nearby = [];
+  /// Son joué à chaque nouvelle personne détectée
+  final _foundPlayer = AudioPlayer();
+  int _lastCount = 0;
 
   /// Bluetooth refusé : message + accès aux réglages à la place des personnes
   bool _bluetoothDenied = false;
@@ -63,6 +66,7 @@ class _NearbySendScreenState extends State<NearbySendScreen>
   @override
   void initState() {
     super.initState();
+    NearbyService.people.addListener(_onPeopleChanged);
     // Après la transition en cercle, pour ne pas la saccader
     Future.delayed(const Duration(milliseconds: 600), _requestBluetooth);
   }
@@ -70,17 +74,34 @@ class _NearbySendScreenState extends State<NearbySendScreen>
   /// Android 12+ : scan / annonce / connexion ; iOS : Bluetooth
   Future<void> _requestBluetooth() async {
     if (!mounted) return;
-    final permissions = Theme.of(context).platform == TargetPlatform.iOS
+    final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
+    // Android 11 et moins : le scan BLE exige la localisation
+    final legacyAndroid =
+        !isIOS && (await DeviceInfoPlugin().androidInfo).version.sdkInt < 31;
+    if (!mounted) return;
+    final permissions = isIOS
         ? [Permission.bluetooth]
-        : [
-            Permission.bluetoothScan,
-            Permission.bluetoothAdvertise,
-            Permission.bluetoothConnect,
-          ];
+        : legacyAndroid
+            ? [Permission.locationWhenInUse]
+            : [
+                Permission.bluetoothScan,
+                Permission.bluetoothAdvertise,
+                Permission.bluetoothConnect,
+              ];
     final statuses = await permissions.request();
     if (!mounted) return;
-    setState(() => _bluetoothDenied =
-        statuses.values.any((s) => !s.isGranted && !s.isLimited));
+    final denied = statuses.values.any((s) => !s.isGranted && !s.isLimited);
+    setState(() => _bluetoothDenied = denied);
+    if (!denied) await NearbyService.start();
+  }
+
+  void _onPeopleChanged() {
+    final count = NearbyService.people.value.length;
+    if (count > _lastCount) {
+      _foundPlayer.play(AssetSource('sounds/scan.wav'));
+      HapticFeedback.lightImpact();
+    }
+    _lastCount = count;
   }
 
   Future<void> _onDeniedTap() async {
@@ -97,17 +118,44 @@ class _NearbySendScreenState extends State<NearbySendScreen>
 
   @override
   void dispose() {
+    NearbyService.people.removeListener(_onPeopleChanged);
+    NearbyService.stop();
+    _foundPlayer.dispose();
     _pulse.dispose();
     _float.dispose();
     super.dispose();
   }
 
-  void _send(RecentRecipient r) => Navigator.pushReplacement(
+  /// Personne choisie : écran d'envoi ouvert directement sur le montant
+  void _send(NearbyPerson p) => Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) => SendMoneyScreen(initialRecipient: r),
+          builder: (_) => SendMoneyScreen(
+            initialRecipient: (
+              value: p.pseudo,
+              avatarUrl: p.avatarUrl,
+              phone: null,
+            ),
+          ),
         ),
       );
+
+  /// « Anny A. » : premier prénom + initiale, sinon le pseudo
+  static String _displayName(NearbyPerson p) {
+    final parts = (p.prenoms ?? '').trim().split(RegExp(r'\s+'));
+    if (parts.first.isEmpty) return p.pseudo;
+    return parts.length > 1 ? '${parts[0]} ${parts[1][0]}.' : parts[0];
+  }
+
+  String _statusText(NearbyStatus status) {
+    if (_bluetoothDenied) return context.tr('nearby_bluetooth_denied');
+    return context.tr(switch (status) {
+      NearbyStatus.bluetoothOff => 'nearby_bluetooth_off',
+      NearbyStatus.unsupported => 'nearby_unsupported',
+      NearbyStatus.error => 'nearby_error',
+      _ => 'nearby_searching',
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -153,14 +201,18 @@ class _NearbySendScreenState extends State<NearbySendScreen>
                 ),
               ),
               const SizedBox(height: 8),
-              Text(
-                context.tr(_bluetoothDenied
-                    ? 'nearby_bluetooth_denied'
-                    : 'nearby_searching'),
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.9),
-                  fontSize: 15,
+              ValueListenableBuilder(
+                valueListenable: NearbyService.status,
+                builder: (context, status, _) => Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 32),
+                  child: Text(
+                    _statusText(status),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.9),
+                      fontSize: 15,
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(height: 40),
@@ -177,7 +229,10 @@ class _NearbySendScreenState extends State<NearbySendScreen>
                           child: Text(context.tr('nearby_enable_bluetooth')),
                         ),
                       )
-                    : _buildPeople(),
+                    : ValueListenableBuilder(
+                        valueListenable: NearbyService.people,
+                        builder: (context, people, _) => _buildPeople(people),
+                      ),
               ),
               const SizedBox(height: 32),
             ],
@@ -230,18 +285,18 @@ class _NearbySendScreenState extends State<NearbySendScreen>
     );
   }
 
-  Widget _buildPeople() {
-    if (_nearby.isEmpty) return const SizedBox.shrink();
+  Widget _buildPeople(List<NearbyPerson> people) {
+    if (people.isEmpty) return const SizedBox.shrink();
     return ListView.separated(
       scrollDirection: Axis.horizontal,
       shrinkWrap: true,
       padding: const EdgeInsets.symmetric(horizontal: 24),
-      itemCount: _nearby.length,
+      itemCount: people.length,
       separatorBuilder: (_, __) => const SizedBox(width: 24),
       itemBuilder: (context, i) {
-        final r = _nearby[i];
+        final p = people[i];
         return GestureDetector(
-          onTap: () => _send(r),
+          onTap: () => _send(p),
           child: Column(
             children: [
               Container(
@@ -251,8 +306,8 @@ class _NearbySendScreenState extends State<NearbySendScreen>
                   shape: BoxShape.circle,
                 ),
                 child: UserAvatar(
-                  pseudo: r.value,
-                  avatarUrl: r.avatarUrl,
+                  pseudo: p.pseudo,
+                  avatarUrl: p.avatarUrl,
                   radius: 20,
                   backgroundColor: const Color(0xFFF5E400),
                   foregroundColor: Colors.black,
@@ -262,7 +317,7 @@ class _NearbySendScreenState extends State<NearbySendScreen>
               SizedBox(
                 width: 84,
                 child: Text(
-                  r.value,
+                  _displayName(p),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.center,
