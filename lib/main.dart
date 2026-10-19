@@ -16,6 +16,7 @@ import 'screens/splash_screen.dart';
 import 'screens/home_screen.dart';
 import 'config/app_config.dart';
 import 'widgets/app_lock_gate.dart';
+import 'widgets/screen_scaler.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -87,20 +88,23 @@ class MyApp extends StatelessWidget {
               GlobalCupertinoLocalizations.delegate,
             ],
             home: const SplashScreen(),
-            builder: (context, child) {
-              // Préserver viewPadding pour permettre SafeArea de fonctionner
-              // mais mettre padding à zéro pour enlever le SafeArea par défaut
-              final originalMediaQuery = MediaQuery.of(context);
-              return MediaQuery(
-                data: originalMediaQuery.copyWith(
-                  padding: EdgeInsets.zero,
-                  // Garder viewPadding pour que SafeArea fonctionne quand nécessaire
-                  viewPadding: originalMediaQuery.viewPadding,
-                ),
-                // Verrouillage par code d'accès au-dessus de toutes les pages
-                child: AppLockGate(navigatorKey: navigatorKey, child: child!),
-              );
-            },
+            // Petits écrans : toute l'interface est réduite proportionnellement
+            builder: (context, child) => ScreenScaler(
+              child: Builder(builder: (context) {
+                // Préserver viewPadding pour permettre SafeArea de fonctionner
+                // mais mettre padding à zéro pour enlever le SafeArea par défaut
+                final originalMediaQuery = MediaQuery.of(context);
+                return MediaQuery(
+                  data: originalMediaQuery.copyWith(
+                    padding: EdgeInsets.zero,
+                    // Garder viewPadding pour que SafeArea fonctionne quand nécessaire
+                    viewPadding: originalMediaQuery.viewPadding,
+                  ),
+                  // Verrouillage par code d'accès au-dessus de toutes les pages
+                  child: AppLockGate(navigatorKey: navigatorKey, child: child!),
+                );
+              }),
+            ),
           );
         },
       ),
