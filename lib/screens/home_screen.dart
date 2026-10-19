@@ -177,9 +177,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         ),
         // Zone sûre en bas (barre système), avec un minimum sans encoche
-        child: SafeArea(
-          top: false,
-          minimum: const EdgeInsets.only(bottom: 12),
+        // padding est mis à zéro dans main.dart : on lit viewPadding
+        child: Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewPaddingOf(context).bottom,
+          ),
           child: _buildBottomNavigationBar(context),
         ),
       ),
@@ -508,7 +510,45 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
         // Card des demandes de paiement affichée : pas de récents
         // Card des demandes affichée : le radar passe sur sa ligne, pas de récents
-        if (!PaymentRequestsSection.visible.value) ...[
+        if (!PaymentRequestsSection.visible.value && recents.isEmpty) ...[
+          // Pas de récents : le radar prend toute la largeur
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: GestureDetector(
+              onTapUp: (d) => Navigator.push(
+                context,
+                NearbySendScreen.route(d.globalPosition),
+              ),
+              child: Container(
+                height: 56,
+                decoration: BoxDecoration(
+                  color: Colors.black,
+                  borderRadius: BorderRadius.circular(28),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    HugeIcon(
+                      icon: HugeIcons.strokeRoundedRadar01,
+                      size: 20,
+                      color: Colors.white,
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'À proximité',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ] else if (!PaymentRequestsSection.visible.value) ...[
           const SizedBox(height: 16),
           SizedBox(
             height: 80,
@@ -811,7 +851,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       (icon: HugeIcons.strokeRoundedAiUser, label: context.tr('nav_account')),
     ];
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+      // Barre système présente : petite marge, sinon marge confortable
+      padding: EdgeInsets.fromLTRB(
+          16, 8, 16, MediaQuery.viewPaddingOf(context).bottom > 0 ? 8 : 32),
       // Libellé long (« Statistiques ») sur écran étroit : réduit au lieu de déborder
       child: FittedBox(
         fit: BoxFit.scaleDown,
