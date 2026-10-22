@@ -65,11 +65,9 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
   // abouti (un renvoi après timeout réutilise la même clé)
   String? _idempotencyKey;
   String? _idempotencyPayload;
-  static const int _minAmount = 200;
-  // Plafond par envoi (table plafonds_transfert) et restants du jour / du
-  // mois : la saisie est bornée au plus petit, le serveur revérifie
+  // Plafond par envoi (table plafonds_transfert) et restant du mois : la
+  // saisie est bornée au plus petit, le serveur revérifie
   int _perTransactionLimit = 1000000;
-  int? _remainingDaily;
   int? _remainingMonthly;
   // La dernière touche a été refusée : le plafond s'affiche en rouge
   bool _hitMax = false;
@@ -400,7 +398,6 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
       final usage = await SupabaseService.getLimitsUsage();
       if (!mounted) return;
       setState(() {
-        _remainingDaily = (limits.daily - usage.daily).clamp(0, limits.daily);
         _remainingMonthly =
             (limits.monthly - usage.monthly).clamp(0, limits.monthly);
       });
@@ -409,16 +406,18 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
     }
   }
 
-  /// Restant le plus contraignant (jour ou mois), null si inconnu
+  /// Restant du mois, null si inconnu
   /// Encaisser : les plafonds d'envoi de l'utilisateur ne s'appliquent pas
-  int? get _remaining => widget.collect ? null : _remainingOrNull;
+  int? get _remaining => widget.collect ? null : _remainingMonthly;
 
-  int? get _remainingOrNull => switch ((_remainingDaily, _remainingMonthly)) {
-        (final d?, final m?) => d < m ? d : m,
-        (final d?, null) => d,
-        (null, final m?) => m,
-        _ => null,
-      };
+  /// Minimum Jèko : 105 F si l'encaissement ou le reversement passe par
+  /// Moov, 10 F sinon (en mode Encaisser, le réseau du payeur est inconnu)
+  int get _minAmount {
+    bool isMoov(Reseau? r) => r?.abreviation.toUpperCase() == 'MOOV';
+    return isMoov(_reseau) || (!widget.collect && isMoov(_chipReseau))
+        ? 105
+        : 10;
+  }
 
   int get _maxAmount {
     final remaining = _remaining;
@@ -1002,10 +1001,16 @@ class _SendMoneyScreenState extends State<SendMoneyScreen> {
     Navigator.of(context).pop();
   }
 
+  static const int _minFee = 5;
+
   int get _amountValue => int.tryParse(_amount) ?? 0;
   bool get _amountValid =>
       _amountValue >= _minAmount && _amountValue <= _maxAmount;
-  int get _fee => (_amountValue * (_feePercent ?? 0) / 100).ceil();
+  /// Frais : pourcentage arrondi au supérieur, 5 F minimum
+  int get _fee {
+    final fee = (_amountValue * (_feePercent ?? 0) / 100).ceil();
+    return fee < _minFee ? _minFee : fee;
+  }
   int get _total =>
       _effectiveSenderPaysFees ? _amountValue + _fee : _amountValue;
   int get _received =>

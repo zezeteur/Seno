@@ -3,7 +3,11 @@ import {
   JEKO_METHODS, JekoError, json, paymentReference, setStatus,
 } from '../_shared/jeko.ts';
 
-const MIN_AMOUNT = 200;
+// Minimums Jèko : 105 F si l'encaissement ou le reversement passe par Moov, 10 F sinon
+const MIN_AMOUNT = 10;
+const MIN_AMOUNT_MOOV = 105;
+// Frais minimum par envoi
+const MIN_FEE = 5;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TRANSFERT_COLUMNS =
   'id, destinataire_label, numero_destination, reseau_destination, montant, frais, total, statut, erreur, created_at';
@@ -125,12 +129,14 @@ Deno.serve(async (req) => {
       const { data: frais, error: feeError } = await admin
         .from('frais_transfert').select('pourcentage').eq('id', 1).single();
       if (feeError) throw feeError;
-      const fee = Math.ceil((amount * Number(frais.pourcentage)) / 100);
+      const fee = Math.max(MIN_FEE, Math.ceil((amount * Number(frais.pourcentage)) / 100));
       // Marchand : frais retirés du montant reçu, quel que soit le choix de l'app
       const senderPays = !merchantPaysFees && sender_pays_fees !== false;
       const montant = senderPays ? amount : amount - fee;
       const total = senderPays ? amount + fee : amount;
-      if (montant < 5) return json({ error: 'invalid_request' }, 400);
+      const viaMoov = sourceReseau.abreviation.toUpperCase() === 'MOOV' ||
+        destReseau.abreviation.toUpperCase() === 'MOOV';
+      if (montant < (viaMoov ? MIN_AMOUNT_MOOV : MIN_AMOUNT)) return json({ error: 'invalid_request' }, 400);
 
       // Plafonds (identiques pour tous, sur le montant reçu) vérifiés et envoi créé
       // dans la même transaction, sous verrou par expéditeur

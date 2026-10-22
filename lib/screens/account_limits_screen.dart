@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../l10n/app_strings.dart';
 import 'package:hugeicons/hugeicons.dart';
+import 'package:shimmer/shimmer.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_colors.dart';
 
@@ -14,8 +15,11 @@ class AccountLimitsScreen extends StatefulWidget {
 class _AccountLimitsScreenState extends State<AccountLimitsScreen> {
   // Plafonds identiques pour tous (table plafonds_transfert, mis en cache)
   AccountLimits? _limits;
-  // Montants déjà envoyés aujourd'hui / ce mois-ci
-  ({int daily, int monthly})? _usage;
+  // Montant déjà envoyé ce mois-ci
+  ({int monthly})? _usage;
+  // Premier chargement en cours : shimmers à la place des montants
+  bool _limitsLoading = true;
+  bool _usageLoading = true;
 
   @override
   void initState() {
@@ -37,6 +41,8 @@ class _AccountLimitsScreenState extends State<AccountLimitsScreen> {
       if (mounted) setState(() => _limits = limits);
     } catch (_) {
       // Hors ligne sans cache : montants masqués
+    } finally {
+      if (mounted) setState(() => _limitsLoading = false);
     }
   }
 
@@ -46,6 +52,8 @@ class _AccountLimitsScreenState extends State<AccountLimitsScreen> {
       if (mounted) setState(() => _usage = usage);
     } catch (_) {
       // Hors ligne : restants masqués
+    } finally {
+      if (mounted) setState(() => _usageLoading = false);
     }
   }
 
@@ -58,6 +66,22 @@ class _AccountLimitsScreenState extends State<AccountLimitsScreen> {
       buffer.write(digits[i]);
     }
     return '$buffer FCFA';
+  }
+
+  /// Bloc gris animé à la place d'un montant ou de la jauge
+  Widget _buildShimmer(double width, double height) {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey.shade300,
+      highlightColor: Colors.grey.shade100,
+      child: Container(
+        width: width,
+        height: height,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(4),
+        ),
+      ),
+    );
   }
 
   Widget _buildIcon(dynamic icon) {
@@ -84,19 +108,22 @@ class _AccountLimitsScreenState extends State<AccountLimitsScreen> {
               color: Theme.of(context).colorScheme.onSurface,
             ),
       ),
-      trailing: Text(
-        _format(amount),
-        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: Theme.of(context).colorScheme.onSurface,
-              fontWeight: FontWeight.bold,
+      trailing: _limitsLoading
+          ? _buildShimmer(110, 16)
+          : Text(
+              _format(amount),
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurface,
+                    fontWeight: FontWeight.bold,
+                  ),
             ),
-      ),
     );
   }
 
   /// Cumul : montant restant, plafond et jauge de consommation
   Widget _buildUsageItem(
       dynamic icon, String title, int? limit, int? remaining) {
+    final loading = _limitsLoading || _usageLoading;
     final progress = (limit != null && remaining != null && limit > 0)
         ? (limit - remaining) / limit
         : 0.0;
@@ -127,35 +154,49 @@ class _AccountLimitsScreenState extends State<AccountLimitsScreen> {
                           ),
                     ),
                     Expanded(
-                      child: Text(
-                        _format(remaining),
-                        style:
-                            Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                  color:
-                                      Theme.of(context).colorScheme.onSurface,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                      ),
+                      child: loading
+                          ? Align(
+                              alignment: Alignment.centerLeft,
+                              child: _buildShimmer(100, 16),
+                            )
+                          : Text(
+                              _format(remaining),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyLarge
+                                  ?.copyWith(
+                                    color:
+                                        Theme.of(context).colorScheme.onSurface,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                            ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 8),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: progress.clamp(0.0, 1.0),
-                    minHeight: 6,
-                    backgroundColor: AppColors.textSecondary.withOpacity(0.15),
-                    color: AppColors.secondary,
+                if (loading)
+                  _buildShimmer(double.infinity, 6)
+                else
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: progress.clamp(0.0, 1.0),
+                      minHeight: 6,
+                      backgroundColor:
+                          AppColors.textSecondary.withOpacity(0.15),
+                      color: AppColors.secondary,
+                    ),
                   ),
-                ),
                 const SizedBox(height: 6),
-                Text(
-                  context.tr('limit_of', {'amount': _format(limit)}),
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppColors.textSecondary,
-                      ),
-                ),
+                if (loading)
+                  _buildShimmer(120, 12)
+                else
+                  Text(
+                    context.tr('limit_of', {'amount': _format(limit)}),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                  ),
               ],
             ),
           ),
@@ -173,13 +214,9 @@ class _AccountLimitsScreenState extends State<AccountLimitsScreen> {
     final limits = _limits;
     final usage = _usage;
     int? remainingMonthly;
-    int? remainingDaily;
     if (limits != null && usage != null) {
       remainingMonthly =
           (limits.monthly - usage.monthly).clamp(0, limits.monthly);
-      // Le reste du jour ne peut dépasser le reste du mois
-      remainingDaily = (limits.daily - usage.daily).clamp(0, limits.daily);
-      if (remainingMonthly < remainingDaily) remainingDaily = remainingMonthly;
     }
 
     return Scaffold(
@@ -233,15 +270,10 @@ class _AccountLimitsScreenState extends State<AccountLimitsScreen> {
                       child: Column(
                         children: [
                           _buildItem(
-                              HugeIcons.strokeRoundedArrowDataTransferHorizontal,
+                              HugeIcons
+                                  .strokeRoundedArrowDataTransferHorizontal,
                               context.tr('limit_transaction'),
                               limits?.perTransaction),
-                          divider,
-                          _buildUsageItem(
-                              HugeIcons.strokeRoundedCalendar01,
-                              context.tr('limit_daily'),
-                              limits?.daily,
-                              remainingDaily),
                           divider,
                           _buildUsageItem(
                               HugeIcons.strokeRoundedCalendar03,

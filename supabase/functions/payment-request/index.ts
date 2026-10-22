@@ -1,7 +1,10 @@
 import { adminClient, corsHeaders, json } from '../_shared/jeko.ts';
 import { sendPush } from '../_shared/fcm.ts';
 
-const MIN_AMOUNT = 200;
+// Minimums Jèko : 105 F si le compte crédité est Moov, 10 F sinon
+// (le réseau du payeur est vérifié par la fonction transfer)
+const MIN_AMOUNT = 10;
+const MIN_AMOUNT_MOOV = 105;
 const MAX_AMOUNT = 1000000;
 // Anti-spam : demandes en attente par demandeur
 const MAX_PENDING = 20;
@@ -33,8 +36,13 @@ Deno.serve(async (req) => {
 
     // Compte crédité : un compte du demandeur
     const { data: compte } = await admin
-      .from('comptes').select('id').eq('id', compte_id).eq('proprietaire', userId).maybeSingle();
+      .from('comptes').select('id, reseaux:id_reseau(abreviation)')
+      .eq('id', compte_id).eq('proprietaire', userId).maybeSingle();
     if (!compte) return json({ error: 'invalid_request' }, 400);
+    const compteReseau = compte.reseaux as unknown as { abreviation: string } | null;
+    if (compteReseau?.abreviation.toUpperCase() === 'MOOV' && amount < MIN_AMOUNT_MOOV) {
+      return json({ error: 'invalid_request' }, 400);
+    }
 
     // Encaisser pour la boutique : elle doit être active et non suspendue
     let shopName: string | null = null;

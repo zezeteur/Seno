@@ -311,7 +311,7 @@ class SupabaseService {
           }
           final row = await supabase
               .from('plafonds_transfert')
-              .select('par_transaction, journalier, mensuel')
+              .select('par_transaction, mensuel')
               .eq('id', 1)
               .single();
           return AccountLimits.fromJson(row);
@@ -321,14 +321,13 @@ class SupabaseService {
             AccountLimits.fromJson(Map<String, dynamic>.from(j as Map)),
       );
 
-  /// Montants déjà envoyés aujourd'hui et ce mois-ci (non mis en cache)
-  static Future<({int daily, int monthly})> getLimitsUsage() async {
+  /// Montant déjà envoyé ce mois-ci (non mis en cache)
+  static Future<({int monthly})> getLimitsUsage() async {
     final supabase = client;
     if (supabase == null) throw const AuthOtpException('service_unavailable');
     final rows = await supabase.rpc('get_my_plafond_usage') as List;
     final row = rows.isEmpty ? const {} : rows.first as Map;
     return (
-      daily: (row['journalier'] as num?)?.toInt() ?? 0,
       monthly: (row['mensuel'] as num?)?.toInt() ?? 0,
     );
   }
@@ -1330,24 +1329,20 @@ class SendOtpResult {
 /// Plafonds d'envoi en FCFA (montant reçu par le destinataire)
 class AccountLimits {
   final int perTransaction;
-  final int daily;
   final int monthly;
 
   const AccountLimits({
     required this.perTransaction,
-    required this.daily,
     required this.monthly,
   });
 
   factory AccountLimits.fromJson(Map<String, dynamic> json) => AccountLimits(
         perTransaction: (json['par_transaction'] as num).toInt(),
-        daily: (json['journalier'] as num).toInt(),
         monthly: (json['mensuel'] as num).toInt(),
       );
 
   Map<String, dynamic> toJson() => {
         'par_transaction': perTransaction,
-        'journalier': daily,
         'mensuel': monthly,
       };
 }
